@@ -249,7 +249,7 @@
         
         .nav-buttons {
         display: flex;
-        gap: 1rem;
+        gap: 1rem;e
         align-items: center;
         }
         
@@ -3590,17 +3590,11 @@
         // ==================== RAW WEALTHY FRONTEND v35.0 - 100% BACKEND INTEGRATED ====================
         const app = {
             // ==================== CONFIGURATION ====================
-         config: {
-            API_BASE_URL: (() => {
-    const isLocal = window.location.hostname === 'localhost' || 
-                   window.location.hostname === '127.0.0.1';
-    const isVercel = window.location.origin.includes('vercel.app');
-    
-    if (isLocal || isVercel) {
-        return 'https://real-wealthy-1.onrender.com/api';  // ✅ Lowercase https
-    }
-    return window.location.origin + '/api';
-})(),
+         // Replace lines ~1530-1540 with:
+config: {
+  API_BASE_URL: 'https://real-wealthy-1.onrender.com/api',
+  // ... rest of config
+}
                 
                 VERSION: '35.0.0',
                 ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
