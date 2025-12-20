@@ -3713,24 +3713,21 @@
     <div class="back-to-top" id="back-to-top">
         <i class="fas fa-chevron-up"></i>
     </div>
-
-    <script>// ==================== RAW WEALTHY FRONTEND v40.0 - FULL BACKEND INTEGRATION ====================
+<script>
+// ==================== RAW WEALTHY FRONTEND v40.0 - FULL BACKEND INTEGRATION ====================
 
 const app = {
 
     // ==================== CONFIGURATION ====================
     config: {
-        // DYNAMIC BACKEND URL - Auto-detects based on environment
         API_BASE_URL: (() => {
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 return 'http://localhost:10000/api';
             }
-            // Use your actual backend URL
             return window.location.origin.includes('vercel.app') 
                 ? 'https://real-wealthy-1.onrender.com/api'
                 : '/api';
         })(),
-        
         VERSION: '40.0.0',
         ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
         MIN_INVESTMENT: 3500,
@@ -3739,20 +3736,7 @@ const app = {
         PLATFORM_FEE_PERCENT: 5,
         REFERRAL_COMMISSION_PERCENT: 15,
         WELCOME_BONUS: 10000,
-        
-        // Auto-refresh intervals (in milliseconds)
-        DASHBOARD_REFRESH_INTERVAL: 30000, // 30 seconds
-        NOTIFICATION_REFRESH_INTERVAL: 60000, // 1 minute
-        BALANCE_REFRESH_INTERVAL: 15000, // 15 seconds
-        
-        // Local storage keys
-        STORAGE_KEYS: {
-            USER_DATA: 'raw_wealthy_user_data',
-            INVESTMENT_PLANS: 'raw_wealthy_plans_cache',
-            NOTIFICATIONS: 'raw_wealthy_notifications',
-            THEME: 'raw_wealthy_theme',
-            LAST_REFRESH: 'raw_wealthy_last_refresh'
-        }
+        ITEMS_PER_PAGE: 20
     },
 
     // ==================== APPLICATION STATE ====================
@@ -3761,41 +3745,26 @@ const app = {
         token: localStorage.getItem('raw_wealthy_token'),
         investmentPlans: [],
         notifications: [],
-        transactions: [],
-        investments: [],
-        deposits: [],
-        withdrawals: [],
-        referrals: [],
-        kycStatus: null,
-        userStats: {
-            totalBalance: 0,
-            activeInvestments: 0,
-            totalEarnings: 0,
-            referralEarnings: 0,
-            pendingWithdrawals: 0,
-            totalDeposits: 0
-        },
-        adminStats: {
-            totalUsers: 0,
-            totalInvested: 0,
-            totalWithdrawn: 0,
-            platformEarnings: 0,
-            pendingRequests: 0
-        },
         isAdmin: false,
         isSuperAdmin: false,
         isAuthenticated: false,
         charts: {},
-        refreshIntervals: {},
-        lastDataUpdate: null,
-        
-        // Real-time update tracking
-        realTimeUpdates: {
-            lastEarningUpdate: null,
-            lastBalanceUpdate: null,
-            lastNotificationCheck: null,
-            pendingUpdates: 0
-        }
+        userStats: {
+            balance: 0,
+            activeInvestments: 0,
+            totalEarnings: 0,
+            referralEarnings: 0,
+            totalInterest: 0
+        },
+        adminStats: {},
+        adminUsers: [],
+        adminInvestments: [],
+        adminDeposits: [],
+        adminWithdrawals: [],
+        adminKYC: [],
+        adminTransactions: [],
+        currentPage: 1,
+        totalPages: 1
     },
 
     // ==================== INITIALIZATION ====================
@@ -3808,14 +3777,10 @@ const app = {
         this.checkAuthentication();
         this.loadInvestmentPlans();
         this.initAnimations();
-        this.initRealTimeUpdates();
-        this.initServiceWorker();
-        
-        // Check URL for referral code
         this.checkReferralFromURL();
         
         // Check for saved theme
-        const savedTheme = localStorage.getItem(this.config.STORAGE_KEYS.THEME) || 'dark';
+        const savedTheme = localStorage.getItem('theme');
         if (savedTheme === 'light') {
             document.body.classList.add('light-mode');
             const themeIcon = document.querySelector('#theme-toggle i');
@@ -3823,11 +3788,19 @@ const app = {
             themeIcon.classList.add('fa-sun');
         }
         
-        // Initialize auto-refresh timers
-        this.initAutoRefresh();
-        
-        // Initialize notification polling
-        this.initNotificationPolling();
+        // Initialize health check
+        this.checkBackendHealth();
+    },
+
+    // ==================== BACKEND HEALTH CHECK ====================
+    async checkBackendHealth() {
+        try {
+            const response = await fetch(`${this.config.API_BASE_URL.replace('/api', '')}/health`);
+            const data = await response.json();
+            console.log('✅ Backend Health:', data);
+        } catch (error) {
+            console.warn('⚠️ Backend health check failed:', error);
+        }
     },
 
     // ==================== EVENT LISTENERS ====================
@@ -3855,10 +3828,6 @@ const app = {
         document.getElementById('support-form').addEventListener('submit', (e) => this.handleSupportRequest(e));
         document.getElementById('password-reset-form').addEventListener('submit', (e) => this.handlePasswordReset(e));
         
-        // Profile forms
-        document.getElementById('password-change-form')?.addEventListener('submit', (e) => this.handlePasswordChange(e));
-        document.getElementById('preferences-form')?.addEventListener('submit', (e) => this.handlePreferencesUpdate(e));
-        
         // Password toggles
         this.initPasswordToggles();
         
@@ -3880,24 +3849,17 @@ const app = {
             investAmount.addEventListener('input', () => this.validateInvestmentAmount());
         }
         
-        // Deposit amount validation
-        const depositAmount = document.getElementById('deposit-amount');
-        if (depositAmount) {
-            depositAmount.addEventListener('input', () => this.validateDepositAmount());
-        }
-        
         // Auto-scroll to top when page changes
         window.addEventListener('hashchange', () => window.scrollTo(0, 0));
         
         // Initialize stats animation
         this.animateStats();
         
-        // Network status monitoring
-        window.addEventListener('online', () => this.handleNetworkStatusChange(true));
-        window.addEventListener('offline', () => this.handleNetworkStatusChange(false));
-        
-        // Visibility change (tab switching)
-        document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
+        // Admin search listeners
+        const userSearch = document.getElementById('user-search');
+        if (userSearch) {
+            userSearch.addEventListener('input', (e) => this.searchUsers(e.target.value));
+        }
     },
 
     // ==================== API REQUEST HANDLER ====================
@@ -3932,65 +3894,69 @@ const app = {
         
         try {
             this.showLoadingSpinner(true);
-            this.state.realTimeUpdates.pendingUpdates++;
-            
             const response = await fetch(url, config);
-            const data = await response.json();
             
-            if (!response.ok) {
-                throw new Error(data.message || `HTTP ${response.status}`);
+            // Handle non-JSON responses
+            const contentType = response.headers.get('content-type');
+            let data;
+            
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                data = await response.text();
             }
             
-            if (!data.success) {
+            if (!response.ok) {
+                throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            if (data && typeof data === 'object' && data.success === false) {
                 throw new Error(data.message || 'Request failed');
             }
             
-            // Update last data update timestamp
-            this.state.lastDataUpdate = new Date();
-            
             return data;
-            
         } catch (error) {
             console.error('API Request Error:', error);
+            console.error('Endpoint:', endpoint);
+            console.error('Options:', options);
             
             // Handle specific error cases
             if (error.message.includes('401') || error.message.includes('token')) {
                 this.handleTokenExpired();
-            } else if (error.message.includes('network') || !navigator.onLine) {
-                this.showToast('Network error. Please check your connection.', 'error');
-            } else {
-                this.showToast(error.message || 'An error occurred. Please try again.', 'error');
             }
             
+            this.showToast(error.message || 'Network error. Please try again.', 'error');
             throw error;
         } finally {
             this.showLoadingSpinner(false);
-            this.state.realTimeUpdates.pendingUpdates = Math.max(0, this.state.realTimeUpdates.pendingUpdates - 1);
         }
     },
 
     // ==================== FILE UPLOAD HANDLER ====================
-    async uploadFile(file, folder = 'general') {
+    async uploadFile(file, folder = 'general', purpose = '') {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('folder', folder);
+        if (purpose) {
+            formData.append('purpose', purpose);
+        }
         
         try {
             const response = await this.apiRequest('/upload', {
                 method: 'POST',
                 body: formData
             });
-            return response.data.fileUrl;
+            return response.data?.fileUrl || response.fileUrl;
         } catch (error) {
             console.error('File upload failed:', error);
-            throw new Error('Failed to upload file. Please try again.');
+            throw new Error('Failed to upload file');
         }
     },
 
     async uploadMultipleFiles(files, folder = 'general') {
         const formData = new FormData();
-        files.forEach((file, index) => {
-            formData.append(`files`, file);
+        files.forEach(file => {
+            formData.append('files', file);
         });
         formData.append('folder', folder);
         
@@ -3999,10 +3965,10 @@ const app = {
                 method: 'POST',
                 body: formData
             });
-            return response.data.fileUrls;
+            return response.data?.fileUrls || response.fileUrls || [];
         } catch (error) {
             console.error('Multiple file upload failed:', error);
-            throw new Error('Failed to upload files. Please try again.');
+            throw new Error('Failed to upload files');
         }
     },
 
@@ -4018,8 +3984,10 @@ const app = {
     async verifyToken() {
         try {
             const response = await this.apiRequest('/profile');
-            this.state.currentUser = response.data.user;
-            this.state.isAdmin = this.state.currentUser.role === 'admin';
+            this.state.currentUser = response.data?.user || response;
+            
+            // Check admin status
+            this.state.isAdmin = this.state.currentUser.role === 'admin' || this.state.currentUser.role === 'super_admin';
             this.state.isSuperAdmin = this.state.currentUser.role === 'super_admin';
             this.state.isAuthenticated = true;
             
@@ -4029,45 +3997,34 @@ const app = {
                 .map(n => n[0])
                 .join('')
                 .toUpperCase();
-            document.getElementById('user-avatar').textContent = initials;
             
-            // Load user notifications
-            this.loadNotifications();
+            const userAvatar = document.getElementById('user-avatar');
+            if (userAvatar) {
+                userAvatar.textContent = initials;
+            }
             
-            // Load user data
-            await this.loadUserData();
-            
-            if (this.state.isAdmin || this.state.isSuperAdmin) {
+            // Redirect based on role
+            if (this.state.isAdmin) {
                 this.showPage('admin');
-                this.updateAdminDashboard();
             } else {
                 this.showPage('dashboard');
-                this.updateDashboard();
             }
             
         } catch (error) {
-            this.clearAuthData();
+            localStorage.removeItem('raw_wealthy_token');
+            this.state.token = null;
+            this.state.isAuthenticated = false;
             this.showPage('home');
         }
     },
 
     handleTokenExpired() {
-        this.clearAuthData();
-        this.showToast('Your session has expired. Please login again.', 'warning');
-        this.showPage('login');
-    },
-
-    clearAuthData() {
         localStorage.removeItem('raw_wealthy_token');
-        localStorage.removeItem(this.config.STORAGE_KEYS.USER_DATA);
         this.state.token = null;
         this.state.currentUser = null;
         this.state.isAuthenticated = false;
-        this.state.isAdmin = false;
-        this.state.isSuperAdmin = false;
-        
-        // Clear all intervals
-        this.clearAllIntervals();
+        this.showToast('Your session has expired. Please login again.', 'warning');
+        this.showPage('login');
     },
 
     // ==================== PAGE NAVIGATION ====================
@@ -4092,26 +4049,21 @@ const app = {
                 if (pageElement) pageElement.style.display = 'block';
                 window.scrollTo(0, 0);
                 break;
-                
             case 'register':
                 pageElement = document.getElementById('registration-page');
                 if (pageElement) pageElement.style.display = 'flex';
                 break;
-                
             case 'login':
                 pageElement = document.getElementById('login-page');
                 if (pageElement) pageElement.style.display = 'flex';
                 break;
-                
             case 'dashboard':
                 pageElement = document.getElementById('dashboard-page');
                 if (pageElement) {
                     pageElement.style.display = 'flex';
                     this.updateDashboard();
-                    this.startDashboardRefresh();
                 }
                 break;
-                
             case 'investment-plans':
                 pageElement = document.getElementById('investment-plans-page');
                 if (pageElement) {
@@ -4119,7 +4071,6 @@ const app = {
                     this.loadInvestmentPlansPage();
                 }
                 break;
-                
             case 'profile':
                 pageElement = document.getElementById('profile-page');
                 if (pageElement) {
@@ -4127,7 +4078,6 @@ const app = {
                     this.loadProfileData();
                 }
                 break;
-                
             case 'referral':
                 pageElement = document.getElementById('referral-page');
                 if (pageElement) {
@@ -4135,21 +4085,15 @@ const app = {
                     this.loadReferralData();
                 }
                 break;
-                
             case 'support':
                 pageElement = document.getElementById('support-page');
-                if (pageElement) {
-                    pageElement.style.display = 'flex';
-                    this.loadSupportTickets();
-                }
+                if (pageElement) pageElement.style.display = 'flex';
                 break;
-                
             case 'admin':
                 pageElement = document.getElementById('admin-page');
                 if (pageElement) {
                     pageElement.style.display = 'flex';
                     this.updateAdminDashboard();
-                    this.startAdminRefresh();
                 }
                 break;
         }
@@ -4165,22 +4109,16 @@ const app = {
             modal.style.display = 'flex';
             
             // Modal-specific setup
-            switch(modalId) {
-                case 'withdraw-modal':
-                    if (this.state.currentUser) {
-                        document.getElementById('available-balance').textContent = 
-                            `₦${this.state.currentUser.balance.toLocaleString()}`;
-                        this.updateWithdrawalFee();
-                    }
-                    break;
-                    
-                case 'invest-modal':
-                    this.loadInvestmentPlansForModal();
-                    break;
-                    
-                case 'deposit-modal':
-                    this.updateDepositMethods();
-                    break;
+            if (modalId === 'withdraw-modal' && this.state.currentUser) {
+                const availableBalance = document.getElementById('available-balance');
+                if (availableBalance) {
+                    availableBalance.textContent = `₦${this.state.currentUser.balance?.toLocaleString() || '0.00'}`;
+                }
+                this.updateWithdrawalFee();
+            }
+            
+            if (modalId === 'invest-modal') {
+                this.loadInvestmentPlansForModal();
             }
         }
     },
@@ -4211,29 +4149,13 @@ const app = {
     async loadInvestmentPlans() {
         try {
             const response = await this.apiRequest('/plans');
-            this.state.investmentPlans = response.data.plans;
-            
-            // Cache plans in localStorage
-            localStorage.setItem(
-                this.config.STORAGE_KEYS.INVESTMENT_PLANS,
-                JSON.stringify(this.state.investmentPlans)
-            );
-            
+            this.state.investmentPlans = response.data?.plans || response.plans || response;
             this.renderInvestmentPlans();
         } catch (error) {
             console.error('Failed to load investment plans:', error);
-            
-            // Try to load from cache
-            const cachedPlans = localStorage.getItem(this.config.STORAGE_KEYS.INVESTMENT_PLANS);
-            if (cachedPlans) {
-                this.state.investmentPlans = JSON.parse(cachedPlans);
-                this.renderInvestmentPlans();
-                this.showToast('Using cached investment plans', 'warning');
-            } else {
-                // Fallback to default plans
-                this.state.investmentPlans = this.getDefaultPlans();
-                this.renderInvestmentPlans();
-            }
+            // Fallback to default plans
+            this.state.investmentPlans = this.getDefaultPlans();
+            this.renderInvestmentPlans();
         }
     },
 
@@ -4248,8 +4170,7 @@ const app = {
                 total_interest: 75,
                 duration: 30,
                 risk_level: 'low',
-                is_popular: true,
-                status: 'active'
+                is_popular: true
             },
             {
                 _id: '2',
@@ -4260,8 +4181,7 @@ const app = {
                 total_interest: 96,
                 duration: 30,
                 risk_level: 'medium',
-                is_popular: true,
-                status: 'active'
+                is_popular: true
             },
             {
                 _id: '3',
@@ -4271,8 +4191,7 @@ const app = {
                 daily_interest: 4.1,
                 total_interest: 123,
                 duration: 30,
-                risk_level: 'high',
-                status: 'active'
+                risk_level: 'high'
             }
         ];
     },
@@ -4281,83 +4200,77 @@ const app = {
         const container = document.getElementById('plans-container');
         if (!container || this.state.investmentPlans.length === 0) return;
         
-        container.innerHTML = this.state.investmentPlans
-            .filter(plan => plan.status === 'active')
-            .slice(0, 3)
-            .map(plan => `
-                <div class="plan-card card-hover">
-                    ${plan.is_popular ? '<div class="plan-badge">Most Popular</div>' : ''}
-                    <div class="plan-header">
-                        <h3 class="plan-name">${plan.name}</h3>
-                        <div class="plan-price">₦${plan.min_amount.toLocaleString()}</div>
-                        <div class="plan-period">Minimum Investment</div>
-                    </div>
-                    <div class="plan-features">
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Daily Returns: ${plan.daily_interest}%</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Total Returns: ${plan.total_interest}%</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Duration: ${plan.duration} Days</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Risk Level: ${plan.risk_level}</span>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary plan-button" onclick="app.showPage('investment-plans')">
-                        View Details
-                    </button>
+        container.innerHTML = this.state.investmentPlans.slice(0, 3).map(plan => `
+            <div class="plan-card card-hover">
+                <div class="plan-header">
+                    <h3 class="plan-name">${plan.name}</h3>
+                    <div class="plan-price">₦${(plan.min_amount || 0).toLocaleString()}</div>
+                    <div class="plan-period">Minimum Investment</div>
                 </div>
-            `).join('');
+                <div class="plan-features">
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Daily Returns: ${plan.daily_interest}%</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Total Returns: ${plan.total_interest}%</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Duration: ${plan.duration} Days</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Risk Level: ${plan.risk_level}</span>
+                    </div>
+                </div>
+                <button class="btn btn-primary plan-button" onclick="app.showPage('investment-plans')">
+                    View Details
+                </button>
+            </div>
+        `).join('');
     },
 
     loadInvestmentPlansPage() {
         const container = document.getElementById('investment-plans-list');
         if (!container || this.state.investmentPlans.length === 0) return;
         
-        container.innerHTML = this.state.investmentPlans
-            .filter(plan => plan.status === 'active')
-            .map(plan => `
-                <div class="plan-card card-hover">
-                    ${plan.is_popular ? '<div class="plan-badge">Most Popular</div>' : ''}
-                    <div class="plan-header">
-                        <h3 class="plan-name">${plan.name}</h3>
-                        <div class="plan-price">₦${plan.min_amount.toLocaleString()}</div>
-                        <div class="plan-period">Minimum Investment</div>
-                    </div>
-                    <div class="plan-features">
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Daily Returns: ${plan.daily_interest}%</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Total Returns: ${plan.total_interest}%</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Duration: ${plan.duration} Days</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Risk Level: ${plan.risk_level}</span>
-                        </div>
-                        <div class="plan-feature">
-                            <i class="fas fa-check-circle"></i>
-                            <span>${plan.description}</span>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary plan-button" onclick="app.openInvestmentModal('${plan._id}')">
-                        Invest Now
-                    </button>
+        container.innerHTML = this.state.investmentPlans.map(plan => `
+            <div class="plan-card card-hover">
+                ${plan.is_popular ? '<div class="plan-badge">Most Popular</div>' : ''}
+                <div class="plan-header">
+                    <h3 class="plan-name">${plan.name}</h3>
+                    <div class="plan-price">₦${(plan.min_amount || 0).toLocaleString()}</div>
+                    <div class="plan-period">Minimum Investment</div>
                 </div>
-            `).join('');
+                <div class="plan-features">
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Daily Returns: ${plan.daily_interest}%</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Total Returns: ${plan.total_interest}%</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Duration: ${plan.duration} Days</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Risk Level: ${plan.risk_level}</span>
+                    </div>
+                    <div class="plan-feature">
+                        <i class="fas fa-check-circle"></i>
+                        <span>${plan.description}</span>
+                    </div>
+                </div>
+                <button class="btn btn-primary plan-button" onclick="app.openInvestmentModal('${plan._id}')">
+                    Invest Now
+                </button>
+            </div>
+        `).join('');
     },
 
     loadInvestmentPlansForModal() {
@@ -4365,11 +4278,9 @@ const app = {
         if (!select || this.state.investmentPlans.length === 0) return;
         
         select.innerHTML = '<option value="">Choose a raw material</option>' +
-            this.state.investmentPlans
-                .filter(plan => plan.status === 'active')
-                .map(plan => `
-                    <option value="${plan._id}">${plan.name} - ₦${plan.min_amount.toLocaleString()} Minimum</option>
-                `).join('');
+            this.state.investmentPlans.map(plan => `
+                <option value="${plan._id}">${plan.name} - ₦${(plan.min_amount || 0).toLocaleString()} Minimum</option>
+            `).join('');
     },
 
     openInvestmentModal(planId) {
@@ -4382,7 +4293,7 @@ const app = {
                 if (amountInput) {
                     amountInput.min = plan.min_amount;
                     amountInput.value = plan.min_amount;
-                    amountInput.placeholder = `Minimum: ₦${plan.min_amount.toLocaleString()}`;
+                    amountInput.placeholder = `Minimum: ₦${(plan.min_amount || 0).toLocaleString()}`;
                 }
             }
             this.openModal('invest-modal');
@@ -4392,6 +4303,7 @@ const app = {
     validateInvestmentAmount() {
         const amountInput = document.getElementById('investment-amount');
         const planSelect = document.getElementById('investment-plan');
+        
         if (!amountInput || !planSelect) return;
         
         const planId = planSelect.value;
@@ -4405,7 +4317,7 @@ const app = {
         
         const plan = this.state.investmentPlans.find(p => p._id === planId);
         if (plan && amount < plan.min_amount) {
-            this.showToast(`Minimum investment for ${plan.name} is ₦${plan.min_amount.toLocaleString()}`, 'warning');
+            this.showToast(`Minimum investment for ${plan.name} is ₦${(plan.min_amount || 0).toLocaleString()}`, 'warning');
         }
     },
 
@@ -4442,9 +4354,9 @@ const app = {
                 body: formData
             });
             
-            this.state.token = response.data.token;
-            this.state.currentUser = response.data.user;
-            localStorage.setItem('raw_wealthy_token', response.data.token);
+            this.state.token = response.data?.token || response.token;
+            this.state.currentUser = response.data?.user || response.user;
+            localStorage.setItem('raw_wealthy_token', this.state.token);
             
             this.showToast('Registration successful! Welcome to Raw Wealthy.', 'success');
             this.setLoadingState('register-btn', false);
@@ -4476,22 +4388,19 @@ const app = {
                 body: formData
             });
             
-            this.state.token = response.data.token;
-            this.state.currentUser = response.data.user;
-            this.state.isAdmin = this.state.currentUser.role === 'admin';
+            this.state.token = response.data?.token || response.token;
+            this.state.currentUser = response.data?.user || response.user;
+            this.state.isAdmin = this.state.currentUser.role === 'admin' || this.state.currentUser.role === 'super_admin';
             this.state.isSuperAdmin = this.state.currentUser.role === 'super_admin';
             
-            localStorage.setItem('raw_wealthy_token', response.data.token);
+            localStorage.setItem('raw_wealthy_token', this.state.token);
             
             this.showToast('Login successful!', 'success');
             this.setLoadingState('login-btn', false);
             
-            // Load user data
-            await this.loadUserData();
-            
             // Redirect based on role
             setTimeout(() => {
-                if (this.state.isAdmin || this.state.isSuperAdmin) {
+                if (this.state.isAdmin) {
                     this.showPage('admin');
                 } else {
                     this.showPage('dashboard');
@@ -4509,94 +4418,75 @@ const app = {
         
         try {
             const response = await this.apiRequest('/profile');
-            const user = response.data.user;
-            const stats = response.data.dashboard_stats || {};
+            const user = response.data?.user || response.user || response;
+            const stats = response.data?.dashboard_stats || response.stats || {};
             
             // Update user info
-            document.getElementById('user-name').textContent = user.full_name;
-            document.getElementById('user-avatar').textContent = user.full_name
-                .split(' ')
-                .map(n => n[0])
-                .join('')
-                .toUpperCase();
+            const userName = document.getElementById('user-name');
+            const userAvatar = document.getElementById('user-avatar');
+            const userTier = document.getElementById('user-tier');
             
-            const tierText = user.kyc_verified ? 'Verified Investor' : 
-                           user.total_invested > 1000000 ? 'Premium Investor' : 
-                           'Standard Investor';
-            document.getElementById('user-tier').textContent = tierText;
+            if (userName) userName.textContent = user.full_name || 'User';
+            if (userAvatar) {
+                const initials = (user.full_name || 'User')
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase();
+                userAvatar.textContent = initials;
+            }
+            if (userTier) {
+                userTier.textContent = user.kyc_verified ? 'Verified Investor' : 'Standard Investor';
+            }
             
-            // Update stats
-            this.updateDashboardStats(user, stats);
+            // Update stats with proper fallback
+            const totalBalance = document.getElementById('total-balance');
+            const activeInvestments = document.getElementById('active-investments');
+            const totalEarnings = document.getElementById('total-earnings');
+            const referralBonus = document.getElementById('referral-bonus');
+            
+            if (totalBalance) totalBalance.textContent = `₦${(user.balance || 0).toLocaleString()}`;
+            if (activeInvestments) activeInvestments.textContent = `₦${(stats.active_investment_value || 0).toLocaleString()}`;
+            if (totalEarnings) totalEarnings.textContent = `₦${(user.total_earnings || 0).toLocaleString()}`;
+            if (referralBonus) referralBonus.textContent = `₦${(user.referral_earnings || 0).toLocaleString()}`;
             
             // Load investments and transactions
             await this.loadUserInvestments();
             await this.loadUserTransactions();
-            await this.loadRecentDeposits();
-            await this.loadRecentWithdrawals();
             
             // Update charts
             this.createEarningsChart(stats);
             
-            // Update notifications badge
-            this.updateNotificationBadge();
-            
-            // Cache user data
-            this.cacheUserData(user, stats);
+            // Load additional dashboard data
+            this.loadDashboardHistory();
+            this.loadTotalInterest();
             
         } catch (error) {
             console.error('Failed to update dashboard:', error);
-            
-            // Try to load cached data
-            this.loadCachedDashboardData();
         }
-    },
-
-    updateDashboardStats(user, stats) {
-        // Update main stats
-        document.getElementById('total-balance').textContent = `₦${user.balance.toLocaleString()}`;
-        document.getElementById('active-investments').textContent = `₦${stats.active_investment_value?.toLocaleString() || '0'}`;
-        document.getElementById('total-earnings').textContent = `₦${user.total_earnings?.toLocaleString() || '0'}`;
-        document.getElementById('referral-bonus').textContent = `₦${user.referral_earnings?.toLocaleString() || '0'}`;
-        
-        // Update state for real-time calculations
-        this.state.userStats = {
-            totalBalance: user.balance || 0,
-            activeInvestments: stats.active_investment_value || 0,
-            totalEarnings: user.total_earnings || 0,
-            referralEarnings: user.referral_earnings || 0,
-            pendingWithdrawals: stats.pending_withdrawals || 0,
-            totalDeposits: stats.total_deposits || 0
-        };
     },
 
     async loadUserInvestments() {
         try {
             const response = await this.apiRequest('/investments?status=active&limit=5');
-            this.state.investments = response.data.investments || [];
+            const investments = response.data?.investments || response.investments || [];
             
             const container = document.getElementById('active-investments-list');
             if (container) {
-                if (this.state.investments.length === 0) {
+                if (investments.length === 0) {
                     container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No active investments</p>';
                 } else {
-                    container.innerHTML = this.state.investments.map(inv => `
-                        <div class="investment-item" onclick="app.viewInvestmentDetail('${inv._id}')">
+                    container.innerHTML = investments.map(inv => `
+                        <div class="investment-item">
                             <div>
                                 <div class="investment-name">${inv.plan?.name || 'Unknown'} Plan</div>
-                                <div class="investment-status">
-                                    ${inv.status === 'active' ? `Active - ${inv.remaining_days || 0} days remaining` : inv.status}
-                                    ${inv.auto_renew ? '<i class="fas fa-sync-alt" style="margin-left: 5px; color: var(--accent-emerald);"></i>' : ''}
-                                </div>
+                                <div class="investment-status">Active - ${inv.remaining_days || 0} days remaining</div>
                             </div>
-                            <div class="investment-amount">₦${inv.amount.toLocaleString()}</div>
+                            <div class="investment-amount">₦${(inv.amount || 0).toLocaleString()}</div>
                         </div>
                     `).join('');
                 }
             }
-            
-            // Calculate daily earnings from active investments
-            this.calculateDailyEarnings();
-            
         } catch (error) {
             console.error('Failed to load investments:', error);
         }
@@ -4604,85 +4494,72 @@ const app = {
 
     async loadUserTransactions() {
         try {
-            const response = await this.apiRequest('/transactions?limit=10');
-            this.state.transactions = response.data.transactions || [];
+            const response = await this.apiRequest('/transactions?limit=5');
+            const transactions = response.data?.transactions || response.transactions || [];
             
             const container = document.getElementById('recent-transactions-list');
             if (container) {
-                if (this.state.transactions.length === 0) {
+                if (transactions.length === 0) {
                     container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No transactions yet</p>';
                 } else {
-                    container.innerHTML = this.state.transactions.slice(0, 5).map(txn => {
-                        const amountClass = txn.amount > 0 ? 'transaction-amount positive' : 'transaction-amount negative';
-                        const amountSign = txn.amount > 0 ? '+' : '';
-                        const icon = txn.type === 'investment' ? 'fa-chart-line' : 
-                                    txn.type === 'withdrawal' ? 'fa-money-bill-wave' : 
-                                    txn.type === 'deposit' ? 'fa-wallet' : 
-                                    txn.type === 'earning' ? 'fa-coins' : 'fa-exchange-alt';
+                    container.innerHTML = transactions.slice(0, 5).map(txn => {
+                        const amount = txn.amount || 0;
+                        const amountClass = amount > 0 ? 'transaction-amount' : 'transaction-amount negative';
+                        const amountSign = amount > 0 ? '+' : '';
+                        const date = txn.createdAt ? new Date(txn.createdAt).toLocaleDateString() : 'N/A';
                         
                         return `
                             <div class="transaction-item">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <i class="fas ${icon}" style="color: var(--accent-emerald);"></i>
-                                    <div>
-                                        <div class="transaction-type">${txn.description || txn.type}</div>
-                                        <div class="transaction-date">${new Date(txn.createdAt).toLocaleDateString()}</div>
-                                    </div>
+                                <div>
+                                    <div class="transaction-type">${txn.description || 'Transaction'}</div>
+                                    <div class="transaction-date">${date}</div>
                                 </div>
-                                <div class="${amountClass}">${amountSign}₦${Math.abs(txn.amount).toLocaleString()}</div>
+                                <div class="${amountClass}">${amountSign}₦${Math.abs(amount).toLocaleString()}</div>
                             </div>
                         `;
                     }).join('');
                 }
             }
-            
         } catch (error) {
             console.error('Failed to load transactions:', error);
         }
     },
 
-    async loadRecentDeposits() {
+    async loadDashboardHistory() {
         try {
-            const response = await this.apiRequest('/deposits?limit=3&status=approved');
-            const deposits = response.data.deposits || [];
+            const response = await this.apiRequest('/transactions?limit=10');
+            const transactions = response.data?.transactions || response.transactions || [];
             
-            // You can display these in a separate section or combine with transactions
+            // You can create a separate history section or add to existing
+            console.log('Dashboard history loaded:', transactions.length, 'transactions');
+            
         } catch (error) {
-            console.error('Failed to load deposits:', error);
+            console.error('Failed to load dashboard history:', error);
         }
     },
 
-    async loadRecentWithdrawals() {
+    async loadTotalInterest() {
         try {
-            const response = await this.apiRequest('/withdrawals?limit=3');
-            const withdrawals = response.data.withdrawals || [];
+            const response = await this.apiRequest('/investments?status=completed');
+            const investments = response.data?.investments || response.investments || [];
             
-            // Update pending withdrawals count
-            const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending').length;
-            if (pendingWithdrawals > 0) {
-                this.showToast(`You have ${pendingWithdrawals} pending withdrawal${pendingWithdrawals > 1 ? 's' : ''}`, 'info');
+            let totalInterest = 0;
+            investments.forEach(inv => {
+                totalInterest += inv.interest_earned || 0;
+            });
+            
+            // Update UI with total interest
+            const totalInterestElement = document.getElementById('total-interest');
+            if (totalInterestElement) {
+                totalInterestElement.textContent = `₦${totalInterest.toLocaleString()}`;
             }
+            
+            // Store in state
+            this.state.userStats.totalInterest = totalInterest;
+            
         } catch (error) {
-            console.error('Failed to load withdrawals:', error);
+            console.error('Failed to load total interest:', error);
         }
-    },
-
-    calculateDailyEarnings() {
-        const dailyEarnings = this.state.investments.reduce((total, inv) => {
-            if (inv.status === 'active' && inv.plan) {
-                return total + (inv.amount * (inv.plan.daily_interest / 100));
-            }
-            return total;
-        }, 0);
-        
-        // Update daily earnings display
-        const dailyEarningsElement = document.getElementById('daily-earnings');
-        if (dailyEarningsElement) {
-            dailyEarningsElement.textContent = `₦${dailyEarnings.toFixed(2)}`;
-        }
-        
-        // Update state
-        this.state.userStats.dailyEarnings = dailyEarnings;
     },
 
     createEarningsChart(stats) {
@@ -4694,17 +4571,9 @@ const app = {
             this.state.charts.earnings.destroy();
         }
         
-        // Generate last 7 days labels
-        const labels = [];
-        const today = new Date();
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            labels.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
-        }
-        
-        // Generate sample earnings data (in real app, get from API)
-        const earningsData = this.generateEarningsData();
+        // Sample data - in real app, get from API
+        const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const earningsData = [12000, 19000, 15000, 25000, 22000, 30000, 28000];
         
         this.state.charts.earnings = new Chart(ctx.getContext('2d'), {
             type: 'line',
@@ -4725,13 +4594,6 @@ const app = {
                 plugins: {
                     legend: {
                         display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return `₦${context.parsed.y.toLocaleString()}`;
-                            }
-                        }
                     }
                 },
                 scales: {
@@ -4758,21 +4620,6 @@ const app = {
                 }
             }
         });
-    },
-
-    generateEarningsData() {
-        // Generate realistic earnings data based on investments
-        const baseEarnings = this.state.userStats.dailyEarnings || 1000;
-        const data = [];
-        
-        for (let i = 0; i < 7; i++) {
-            // Add some randomness to make it look realistic
-            const variation = (Math.random() * 0.4) - 0.2; // -20% to +20%
-            const dailyEarning = baseEarnings * (1 + variation);
-            data.push(Math.round(dailyEarning));
-        }
-        
-        return data;
     },
 
     // ==================== INVESTMENT CREATION ====================
@@ -4803,7 +4650,7 @@ const app = {
         }
         
         if (amount < plan.min_amount) {
-            this.showToast(`Minimum investment for ${plan.name} is ₦${plan.min_amount.toLocaleString()}`, 'error');
+            this.showToast(`Minimum investment for ${plan.name} is ₦${(plan.min_amount || 0).toLocaleString()}`, 'error');
             return;
         }
         
@@ -4838,98 +4685,6 @@ const app = {
             
         } catch (error) {
             this.setLoadingState('invest-btn', false);
-        }
-    },
-
-    async viewInvestmentDetail(investmentId) {
-        try {
-            const response = await this.apiRequest(`/investments/${investmentId}`);
-            const investment = response.data.investment;
-            
-            // Show investment details in modal
-            this.showInvestmentDetailModal(investment);
-            
-        } catch (error) {
-            console.error('Failed to load investment details:', error);
-        }
-    },
-
-    showInvestmentDetailModal(investment) {
-        const modalHTML = `
-            <div class="modal" id="investment-detail-modal">
-                <div class="modal-content" style="max-width: 500px;">
-                    <div class="modal-header">
-                        <h2>Investment Details</h2>
-                        <button class="close-modal" onclick="app.closeModal('investment-detail-modal')">&times;</button>
-                    </div>
-                    <div style="padding: 1rem;">
-                        <div style="margin-bottom: 1.5rem;">
-                            <h3 style="color: var(--accent-gold); margin-bottom: 0.5rem;">${investment.plan?.name || 'Unknown'} Plan</h3>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Amount:</span>
-                                <strong>₦${investment.amount.toLocaleString()}</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Status:</span>
-                                <span class="status-badge ${investment.status}">${investment.status}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Daily Interest:</span>
-                                <strong>${investment.plan?.daily_interest || 0}%</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Start Date:</span>
-                                <span>${new Date(investment.start_date).toLocaleDateString()}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>End Date:</span>
-                                <span>${new Date(investment.end_date).toLocaleDateString()}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Days Remaining:</span>
-                                <strong>${investment.remaining_days || 0}</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Auto Renew:</span>
-                                <span>${investment.auto_renew ? 'Yes' : 'No'}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>Total Earnings:</span>
-                                <strong style="color: var(--accent-emerald);">₦${investment.total_earned?.toLocaleString() || '0'}</strong>
-                            </div>
-                        </div>
-                        
-                        ${investment.status === 'active' ? `
-                            <button class="btn btn-primary" style="width: 100%;" onclick="app.renewInvestment('${investment._id}')">
-                                ${investment.auto_renew ? 'Disable Auto Renew' : 'Enable Auto Renew'}
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Add modal to DOM
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalHTML;
-        document.body.appendChild(modalContainer);
-        
-        // Show modal
-        document.getElementById('investment-detail-modal').style.display = 'flex';
-    },
-
-    async renewInvestment(investmentId) {
-        try {
-            const response = await this.apiRequest(`/investments/${investmentId}/renew`, {
-                method: 'POST'
-            });
-            
-            this.showToast(response.data.message, 'success');
-            this.closeModal('investment-detail-modal');
-            this.updateDashboard();
-            
-        } catch (error) {
-            console.error('Failed to renew investment:', error);
         }
     },
 
@@ -4980,38 +4735,8 @@ const app = {
             this.setLoadingState('deposit-btn', false);
             this.closeModal('deposit-modal');
             
-            // Update dashboard
-            setTimeout(() => {
-                this.updateDashboard();
-            }, 1000);
-            
         } catch (error) {
             this.setLoadingState('deposit-btn', false);
-        }
-    },
-
-    updateDepositMethods() {
-        const select = document.getElementById('deposit-method');
-        if (!select) return;
-        
-        select.innerHTML = `
-            <option value="">Select payment method</option>
-            <option value="bank_transfer">Bank Transfer</option>
-            <option value="crypto">Cryptocurrency</option>
-            <option value="paypal">PayPal</option>
-            <option value="card">Credit/Debit Card</option>
-            <option value="flutterwave">Flutterwave</option>
-            <option value="paystack">Paystack</option>
-        `;
-    },
-
-    validateDepositAmount() {
-        const amountInput = document.getElementById('deposit-amount');
-        if (!amountInput) return;
-        
-        const amount = parseFloat(amountInput.value) || 0;
-        if (amount > 0 && amount < this.config.MIN_DEPOSIT) {
-            this.showToast(`Minimum deposit is ₦${this.config.MIN_DEPOSIT.toLocaleString()}`, 'warning');
         }
     },
 
@@ -5034,7 +4759,8 @@ const app = {
             return;
         }
         
-        if (amount > this.state.currentUser.balance) {
+        const userBalance = this.state.currentUser.balance || 0;
+        if (amount > userBalance) {
             this.showToast('Insufficient balance for withdrawal', 'error');
             return;
         }
@@ -5060,7 +4786,7 @@ const app = {
             this.closeModal('withdraw-modal');
             
             // Update user balance display
-            this.state.currentUser.balance -= amount;
+            this.state.currentUser.balance = (this.state.currentUser.balance || 0) - amount;
             this.updateDashboard();
             
         } catch (error) {
@@ -5071,6 +4797,7 @@ const app = {
     updateWithdrawalFee() {
         const amountInput = document.getElementById('withdraw-amount');
         const feeNotice = document.getElementById('withdrawal-fee-notice');
+        
         if (!amountInput || !feeNotice) return;
         
         const amount = parseFloat(amountInput.value) || 0;
@@ -5089,11 +4816,11 @@ const app = {
         
         try {
             const response = await this.apiRequest('/profile');
-            const user = response.data.user;
+            const user = response.data?.user || response.user || response;
             
             // Update personal info
-            document.getElementById('profile-fullname').value = user.full_name;
-            document.getElementById('profile-email').value = user.email;
+            document.getElementById('profile-fullname').value = user.full_name || '';
+            document.getElementById('profile-email').value = user.email || '';
             document.getElementById('profile-phone').value = user.phone || '';
             document.getElementById('profile-country').value = user.country || 'ng';
             
@@ -5103,12 +4830,6 @@ const app = {
                 kycStatusElement.textContent = user.kyc_verified ? 'Verified' : 'Pending';
                 kycStatusElement.className = user.kyc_verified ? 'status-badge approved' : 'status-badge pending';
             }
-            
-            // Load KYC status from API
-            await this.loadKYCStatus();
-            
-            // Load bank details if exists
-            await this.loadBankDetails();
             
         } catch (error) {
             console.error('Failed to load profile data:', error);
@@ -5130,89 +4851,11 @@ const app = {
                 body: formData
             });
             
-            this.state.currentUser = response.data.user;
+            this.state.currentUser = response.data?.user || response.user || response;
             this.showToast('Profile updated successfully!', 'success');
             
         } catch (error) {
             console.error('Failed to update profile:', error);
-        }
-    },
-
-    async handlePasswordChange(e) {
-        e.preventDefault();
-        
-        const currentPassword = document.getElementById('current-password').value;
-        const newPassword = document.getElementById('new-password').value;
-        const confirmPassword = document.getElementById('confirm-new-password').value;
-        
-        if (newPassword !== confirmPassword) {
-            this.showToast('New passwords do not match!', 'error');
-            return;
-        }
-        
-        if (newPassword.length < 6) {
-            this.showToast('Password must be at least 6 characters', 'error');
-            return;
-        }
-        
-        try {
-            const response = await this.apiRequest('/auth/change-password', {
-                method: 'POST',
-                body: {
-                    current_password: currentPassword,
-                    new_password: newPassword
-                }
-            });
-            
-            this.showToast('Password changed successfully!', 'success');
-            e.target.reset();
-            
-        } catch (error) {
-            console.error('Failed to change password:', error);
-        }
-    },
-
-    async handlePreferencesUpdate(e) {
-        e.preventDefault();
-        
-        const formData = {
-            currency: document.getElementById('currency').value,
-            language: document.getElementById('language').value,
-            timezone: document.getElementById('timezone').value,
-            risk_tolerance: document.getElementById('risk-tolerance-pref').value,
-            investment_strategy: document.getElementById('investment-strategy-pref').value,
-            email_notifications: document.getElementById('email-notifications').checked,
-            sms_notifications: document.getElementById('sms-notifications').checked,
-            auto_renew_investments: document.getElementById('auto-renew-investments').checked
-        };
-        
-        try {
-            const response = await this.apiRequest('/profile/preferences', {
-                method: 'PUT',
-                body: formData
-            });
-            
-            this.showToast('Preferences updated successfully!', 'success');
-            
-        } catch (error) {
-            console.error('Failed to update preferences:', error);
-        }
-    },
-
-    // ==================== BANK DETAILS ====================
-    async loadBankDetails() {
-        try {
-            const response = await this.apiRequest('/profile/bank');
-            const bankDetails = response.data.bank_details;
-            
-            if (bankDetails) {
-                document.getElementById('bank-name').value = bankDetails.bank_name || '';
-                document.getElementById('account-name').value = bankDetails.account_name || '';
-                document.getElementById('account-number').value = bankDetails.account_number || '';
-            }
-            
-        } catch (error) {
-            console.error('Failed to load bank details:', error);
         }
     },
 
@@ -5238,28 +4881,7 @@ const app = {
         }
     },
 
-    // ==================== KYC MANAGEMENT ====================
-    async loadKYCStatus() {
-        try {
-            const response = await this.apiRequest('/kyc/status');
-            this.state.kycStatus = response.data.kyc_status;
-            
-            // Update KYC status display
-            const kycStatusElement = document.getElementById('kyc-status-text');
-            if (kycStatusElement && this.state.kycStatus) {
-                kycStatusElement.textContent = this.state.kycStatus.status;
-                kycStatusElement.className = `status-badge ${this.state.kycStatus.status}`;
-                
-                if (this.state.kycStatus.remarks) {
-                    kycStatusElement.title = this.state.kycStatus.remarks;
-                }
-            }
-            
-        } catch (error) {
-            console.error('Failed to load KYC status:', error);
-        }
-    },
-
+    // ==================== KYC SUBMISSION ====================
     async handleKYCSubmission(e) {
         e.preventDefault();
         
@@ -5299,9 +4921,11 @@ const app = {
             this.setLoadingState('kyc-submit-btn', false);
             
             // Update KYC status
-            this.state.kycStatus = { status: 'pending' };
-            document.getElementById('kyc-status-text').textContent = 'Pending';
-            document.getElementById('kyc-status-text').className = 'status-badge pending';
+            const kycStatusText = document.getElementById('kyc-status-text');
+            if (kycStatusText) {
+                kycStatusText.textContent = 'Pending';
+                kycStatusText.className = 'status-badge pending';
+            }
             
             // Reset form
             e.target.reset();
@@ -5320,65 +4944,43 @@ const app = {
         
         try {
             const response = await this.apiRequest('/referrals/stats');
-            const stats = response.data.stats;
-            this.state.referrals = response.data.referrals || [];
+            const stats = response.data?.stats || response.stats || response;
             
             // Update referral link and code
             const baseUrl = window.location.origin;
-            const referralLink = `${baseUrl}/register?ref=${this.state.currentUser.referral_code}`;
+            const referralLink = `${baseUrl}/register?ref=${this.state.currentUser.referral_code || ''}`;
             
             document.getElementById('referral-link').value = referralLink;
-            document.getElementById('referral-code').value = this.state.currentUser.referral_code;
+            document.getElementById('referral-code').value = this.state.currentUser.referral_code || '';
             
             // Update stats
-            this.updateReferralStats(stats);
-            
-            // Load referral list
-            this.loadReferralList();
+            document.getElementById('total-referrals').textContent = stats.total_referrals || 0;
+            document.getElementById('active-referrals').textContent = stats.active_referrals || 0;
+            document.getElementById('total-referral-earnings').textContent = `₦${(stats.total_earnings || 0).toLocaleString()}`;
+            document.getElementById('pending-referral-earnings').textContent = `₦${(stats.pending_earnings || 0).toLocaleString()}`;
             
         } catch (error) {
             console.error('Failed to load referral data:', error);
         }
     },
 
-    updateReferralStats(stats) {
-        document.getElementById('total-referrals').textContent = stats.total_referrals || 0;
-        document.getElementById('active-referrals').textContent = stats.active_referrals || 0;
-        document.getElementById('total-referral-earnings').textContent = `₦${stats.total_earnings?.toLocaleString() || '0'}`;
-        document.getElementById('pending-referral-earnings').textContent = `₦${stats.pending_earnings?.toLocaleString() || '0'}`;
-        
-        // Update referral stats in dashboard
-        this.state.userStats.referralEarnings = stats.total_earnings || 0;
-    },
-
     async loadReferralList() {
-        const container = document.getElementById('referral-list');
-        if (!container) return;
-        
-        if (this.state.referrals.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">No referrals yet</p>';
-            return;
+        try {
+            const response = await this.apiRequest('/referrals/list');
+            const referrals = response.data?.referrals || response.referrals || [];
+            
+            console.log('Referral list loaded:', referrals.length, 'referrals');
+            // You can display this list in a table or grid
+            
+        } catch (error) {
+            console.error('Failed to load referral list:', error);
         }
-        
-        container.innerHTML = this.state.referrals.map(ref => `
-            <div class="referral-item" style="display: flex; justify-content: space-between; padding: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
-                <div>
-                    <div style="font-weight: 500;">${ref.user?.full_name || 'Unknown'}</div>
-                    <div style="color: var(--text-muted); font-size: 0.9rem;">Joined: ${new Date(ref.createdAt).toLocaleDateString()}</div>
-                </div>
-                <div>
-                    <div style="color: var(--accent-emerald); font-weight: 600;">₦${ref.earnings?.toLocaleString() || '0'}</div>
-                    <div style="color: var(--text-muted); font-size: 0.8rem;">${ref.status}</div>
-                </div>
-            </div>
-        `).join('');
     },
 
     copyReferralLink() {
         const linkInput = document.getElementById('referral-link');
         linkInput.select();
         document.execCommand('copy');
-        
         this.showToast('Referral link copied to clipboard!', 'success');
     },
 
@@ -5386,7 +4988,6 @@ const app = {
         const codeInput = document.getElementById('referral-code');
         codeInput.select();
         document.execCommand('copy');
-        
         this.showToast('Referral code copied to clipboard!', 'success');
     },
 
@@ -5400,45 +5001,6 @@ const app = {
     },
 
     // ==================== SUPPORT SYSTEM ====================
-    async loadSupportTickets() {
-        try {
-            const response = await this.apiRequest('/support/tickets');
-            const tickets = response.data.tickets || [];
-            
-            this.displaySupportTickets(tickets);
-            
-        } catch (error) {
-            console.error('Failed to load support tickets:', error);
-        }
-    },
-
-    displaySupportTickets(tickets) {
-        const container = document.getElementById('support-tickets-list');
-        if (!container) return;
-        
-        if (tickets.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No support tickets yet</p>';
-            return;
-        }
-        
-        container.innerHTML = tickets.map(ticket => `
-            <div class="support-ticket" style="background: var(--secondary); padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
-                    <div>
-                        <h4 style="margin-bottom: 0.5rem;">${ticket.subject}</h4>
-                        <div style="color: var(--text-muted); font-size: 0.9rem;">${ticket.category}</div>
-                    </div>
-                    <span class="status-badge ${ticket.status}">${ticket.status}</span>
-                </div>
-                <p style="margin-bottom: 1rem; color: var(--text-light);">${ticket.message}</p>
-                <div style="display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.9rem;">
-                    <span>${new Date(ticket.createdAt).toLocaleDateString()}</span>
-                    ${ticket.admin_reply ? '<span><i class="fas fa-reply"></i> Replied</span>' : ''}
-                </div>
-            </div>
-        `).join('');
-    },
-
     async handleSupportRequest(e) {
         e.preventDefault();
         
@@ -5447,23 +5009,6 @@ const app = {
             category: document.getElementById('support-category').value,
             message: document.getElementById('support-message').value.trim()
         };
-        
-        // Check for attachments
-        const attachmentFiles = document.getElementById('support-attachments')?.files;
-        let attachmentUrls = [];
-        
-        if (attachmentFiles && attachmentFiles.length > 0) {
-            try {
-                attachmentUrls = await this.uploadMultipleFiles(Array.from(attachmentFiles), 'support-attachments');
-            } catch (error) {
-                this.showToast('Failed to upload attachments', 'error');
-                return;
-            }
-        }
-        
-        if (attachmentUrls.length > 0) {
-            formData.attachments = attachmentUrls;
-        }
         
         try {
             const response = await this.apiRequest('/support', {
@@ -5474,533 +5019,216 @@ const app = {
             this.showToast('Support ticket submitted successfully!', 'success');
             e.target.reset();
             
-            // Refresh tickets list
-            this.loadSupportTickets();
-            
         } catch (error) {
             console.error('Failed to submit support ticket:', error);
         }
     },
 
-    // ==================== NOTIFICATION SYSTEM ====================
-    async loadNotifications() {
+    async loadSupportTickets() {
         try {
-            const response = await this.apiRequest('/notifications');
-            this.state.notifications = response.data.notifications || [];
+            const response = await this.apiRequest('/support/tickets');
+            const tickets = response.data?.tickets || response.tickets || [];
             
-            this.updateNotificationDisplay();
-            
-            // Cache notifications
-            localStorage.setItem(
-                this.config.STORAGE_KEYS.NOTIFICATIONS,
-                JSON.stringify(this.state.notifications)
-            );
+            console.log('Support tickets loaded:', tickets.length, 'tickets');
+            // You can display this list in the support page
             
         } catch (error) {
-            console.error('Failed to load notifications:', error);
-            
-            // Try to load cached notifications
-            const cachedNotifications = localStorage.getItem(this.config.STORAGE_KEYS.NOTIFICATIONS);
-            if (cachedNotifications) {
-                this.state.notifications = JSON.parse(cachedNotifications);
-                this.updateNotificationDisplay();
-            }
+            console.error('Failed to load support tickets:', error);
         }
-    },
-
-    updateNotificationDisplay() {
-        const unreadCount = this.state.notifications.filter(n => !n.read).length;
-        this.updateNotificationBadge(unreadCount);
-        
-        // Update notification dropdown if exists
-        this.updateNotificationDropdown();
-    },
-
-    updateNotificationBadge(count) {
-        const badge = document.getElementById('notification-badge');
-        if (badge) {
-            if (count > 0) {
-                badge.textContent = count > 9 ? '9+' : count.toString();
-                badge.style.display = 'flex';
-            } else {
-                badge.style.display = 'none';
-            }
-        }
-    },
-
-    updateNotificationDropdown() {
-        const dropdown = document.getElementById('notifications-dropdown');
-        if (!dropdown) return;
-        
-        const unreadNotifications = this.state.notifications.filter(n => !n.read).slice(0, 5);
-        
-        if (unreadNotifications.length === 0) {
-            dropdown.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center;">No new notifications</div>';
-            return;
-        }
-        
-        dropdown.innerHTML = unreadNotifications.map(notification => `
-            <div class="notification-item" onclick="app.markNotificationAsRead('${notification._id}')"
-                 style="padding: 0.8rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;">
-                <div style="display: flex; align-items: start; gap: 0.5rem;">
-                    <i class="fas ${this.getNotificationIcon(notification.type)}" 
-                       style="color: ${this.getNotificationColor(notification.type)}; margin-top: 0.2rem;"></i>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; font-size: 0.9rem;">${notification.title}</div>
-                        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.2rem;">
-                            ${notification.message}
-                        </div>
-                        <div style="color: var(--text-muted); font-size: 0.7rem; margin-top: 0.5rem;">
-                            ${new Date(notification.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-        
-        // Add view all button
-        dropdown.innerHTML += `
-            <div style="text-align: center; padding: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                <a href="#" onclick="app.viewAllNotifications()" style="color: var(--accent-emerald); font-size: 0.9rem;">
-                    View All Notifications
-                </a>
-            </div>
-        `;
-    },
-
-    getNotificationIcon(type) {
-        const icons = {
-            'investment': 'fa-chart-line',
-            'withdrawal': 'fa-money-bill-wave',
-            'deposit': 'fa-wallet',
-            'earning': 'fa-coins',
-            'referral': 'fa-user-friends',
-            'kyc': 'fa-id-card',
-            'system': 'fa-cog',
-            'info': 'fa-info-circle',
-            'success': 'fa-check-circle',
-            'warning': 'fa-exclamation-triangle',
-            'error': 'fa-exclamation-circle'
-        };
-        return icons[type] || 'fa-bell';
-    },
-
-    getNotificationColor(type) {
-        const colors = {
-            'investment': '#3b82f6',
-            'withdrawal': '#f59e0b',
-            'deposit': '#10b981',
-            'earning': '#8b5cf6',
-            'referral': '#ec4899',
-            'kyc': '#6366f1',
-            'system': '#94a3b8',
-            'info': '#3b82f6',
-            'success': '#10b981',
-            'warning': '#f59e0b',
-            'error': '#ef4444'
-        };
-        return colors[type] || '#94a3b8';
-    },
-
-    async markNotificationAsRead(notificationId) {
-        try {
-            await this.apiRequest(`/notifications/${notificationId}/read`, {
-                method: 'POST'
-            });
-            
-            // Update local state
-            const notification = this.state.notifications.find(n => n._id === notificationId);
-            if (notification) {
-                notification.read = true;
-            }
-            
-            this.updateNotificationDisplay();
-            
-        } catch (error) {
-            console.error('Failed to mark notification as read:', error);
-        }
-    },
-
-    async markAllNotificationsAsRead() {
-        try {
-            await this.apiRequest('/notifications/read-all', {
-                method: 'POST'
-            });
-            
-            // Update all notifications as read
-            this.state.notifications.forEach(n => n.read = true);
-            this.updateNotificationDisplay();
-            
-            this.showToast('All notifications marked as read', 'success');
-            
-        } catch (error) {
-            console.error('Failed to mark all notifications as read:', error);
-        }
-    },
-
-    viewAllNotifications() {
-        // Show notifications page/modal
-        this.showNotificationsModal();
-    },
-
-    showNotificationsModal() {
-        const modalHTML = `
-            <div class="modal" id="notifications-modal">
-                <div class="modal-content" style="max-width: 600px; max-height: 80vh;">
-                    <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>Notifications</h2>
-                        <div>
-                            <button class="btn btn-outline" onclick="app.markAllNotificationsAsRead()" style="margin-right: 0.5rem;">
-                                Mark All Read
-                            </button>
-                            <button class="close-modal" onclick="app.closeModal('notifications-modal')">&times;</button>
-                        </div>
-                    </div>
-                    <div style="padding: 1rem; overflow-y: auto; max-height: 60vh;">
-                        ${this.state.notifications.length === 0 ? 
-                            '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No notifications</p>' :
-                            this.state.notifications.map(notification => `
-                                <div class="notification-item-full ${notification.read ? '' : 'unread'}" 
-                                     style="padding: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
-                                    <div style="display: flex; align-items: start; gap: 1rem;">
-                                        <i class="fas ${this.getNotificationIcon(notification.type)}" 
-                                           style="color: ${this.getNotificationColor(notification.type)}; font-size: 1.2rem; margin-top: 0.2rem;"></i>
-                                        <div style="flex: 1;">
-                                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                                <h4 style="margin: 0; font-size: 1rem;">${notification.title}</h4>
-                                                <span style="color: var(--text-muted); font-size: 0.8rem;">
-                                                    ${new Date(notification.createdAt).toLocaleDateString()}
-                                                </span>
-                                            </div>
-                                            <p style="margin: 0; color: var(--text-light); font-size: 0.9rem;">
-                                                ${notification.message}
-                                            </p>
-                                            ${notification.data ? `
-                                                <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255, 255, 255, 0.05); border-radius: 5px;">
-                                                    <pre style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
-                                                        ${JSON.stringify(notification.data, null, 2)}
-                                                    </pre>
-                                                </div>
-                                            ` : ''}
-                                        </div>
-                                    </div>
-                                </div>
-                            `).join('')
-                        }
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Add modal to DOM
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalHTML;
-        document.body.appendChild(modalContainer);
-        
-        // Show modal
-        document.getElementById('notifications-modal').style.display = 'flex';
     },
 
     // ==================== ADMIN FUNCTIONS ====================
     async updateAdminDashboard() {
-        if (!this.state.isAdmin && !this.state.isSuperAdmin) return;
+        if (!this.state.isAdmin) return;
         
         try {
             const response = await this.apiRequest('/admin/dashboard');
-            const stats = response.data.stats;
+            const stats = response.data?.stats || response.stats || response;
             
-            this.state.adminStats = {
-                totalUsers: stats.total_users || 0,
-                totalInvested: stats.total_investments || 0,
-                totalWithdrawn: stats.total_withdrawals || 0,
-                platformEarnings: stats.platform_earnings || 0,
-                pendingRequests: stats.total_pending || 0,
-                activeInvestments: stats.active_investments || 0,
-                todayDeposits: stats.today_deposits || 0,
-                todayWithdrawals: stats.today_withdrawals || 0
-            };
+            // Update admin stats
+            document.getElementById('admin-total-users').textContent = stats.total_users || 0;
+            document.getElementById('admin-total-invested').textContent = `₦${(stats.total_investments || 0).toLocaleString()}`;
+            document.getElementById('admin-total-withdrawn').textContent = `₦${(stats.total_withdrawals || 0).toLocaleString()}`;
+            document.getElementById('admin-pending-requests').textContent = stats.total_pending || 0;
+            document.getElementById('admin-platform-earnings').textContent = `₦${(stats.platform_earnings || 0).toLocaleString()}`;
+            document.getElementById('admin-active-investments').textContent = stats.active_investments || 0;
             
-            // Update admin stats display
-            this.updateAdminStatsDisplay();
+            // Store admin stats in state
+            this.state.adminStats = stats;
             
-            // Load admin data tables
-            await this.loadAdminUsers();
-            await this.loadAdminInvestments();
-            await this.loadAdminDeposits();
-            await this.loadAdminWithdrawals();
-            await this.loadAdminKYC();
-            
-            // Create admin charts
-            this.createAdminCharts(stats);
+            // Load admin data based on current tab
+            const activeTab = this.getActiveAdminTab();
+            if (activeTab === 'overview') {
+                this.loadAdminUsers();
+                this.loadAdminInvestments();
+                this.loadAdminDeposits();
+                this.loadAdminWithdrawals();
+                this.loadAdminKYC();
+                this.loadAdminTransactions();
+            }
             
         } catch (error) {
             console.error('Failed to update admin dashboard:', error);
         }
     },
 
-    updateAdminStatsDisplay() {
-        const stats = this.state.adminStats;
-        
-        document.getElementById('admin-total-users').textContent = stats.totalUsers.toLocaleString();
-        document.getElementById('admin-total-invested').textContent = `₦${stats.totalInvested.toLocaleString()}`;
-        document.getElementById('admin-total-withdrawn').textContent = `₦${stats.totalWithdrawn.toLocaleString()}`;
-        document.getElementById('admin-pending-requests').textContent = stats.pendingRequests.toLocaleString();
-        document.getElementById('admin-platform-earnings').textContent = `₦${stats.platformEarnings.toLocaleString()}`;
-        document.getElementById('admin-active-investments').textContent = stats.activeInvestments.toLocaleString();
-    },
-
-    createAdminCharts(stats) {
-        // Platform growth chart
-        this.createPlatformGrowthChart(stats);
-        
-        // Revenue chart
-        this.createRevenueChart(stats);
-    },
-
-    createPlatformGrowthChart(stats) {
-        const ctx = document.getElementById('platform-growth-chart');
-        if (!ctx) return;
-        
-        // Destroy existing chart
-        if (this.state.charts.platformGrowth) {
-            this.state.charts.platformGrowth.destroy();
-        }
-        
-        // Generate last 30 days labels
-        const labels = [];
-        const today = new Date();
-        for (let i = 29; i >= 0; i--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-        }
-        
-        // Generate user growth data (sample - in real app, get from API)
-        const userGrowthData = this.generateUserGrowthData(stats.totalUsers);
-        
-        this.state.charts.platformGrowth = new Chart(ctx.getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: labels.slice(-15), // Show last 15 days
-                datasets: [{
-                    label: 'New Users',
-                    data: userGrowthData.slice(-15),
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#94a3b8'
-                        }
-                    },
-                    x: {
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#94a3b8',
-                            maxRotation: 45
-                        }
-                    }
-                }
+    getActiveAdminTab() {
+        const tabs = ['overview', 'users', 'investments', 'deposits', 'withdrawals', 'kyc', 'transactions'];
+        for (const tab of tabs) {
+            const tabElement = document.getElementById(`${tab}-tab`);
+            if (tabElement && tabElement.style.display !== 'none') {
+                return tab;
             }
-        });
-    },
-
-    createRevenueChart(stats) {
-        const ctx = document.getElementById('revenue-chart');
-        if (!ctx) return;
-        
-        // Destroy existing chart
-        if (this.state.charts.revenue) {
-            this.state.charts.revenue.destroy();
         }
-        
-        const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const revenueData = this.generateRevenueData(stats.totalInvested);
-        
-        this.state.charts.revenue = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Monthly Revenue',
-                    data: revenueData,
-                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
-                    borderColor: '#3b82f6',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return `₦${context.parsed.y.toLocaleString()}`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#94a3b8',
-                            callback: function(value) {
-                                return '₦' + (value / 1000).toFixed(0) + 'K';
-                            }
-                        }
-                    },
-                    x: {
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
-                        ticks: {
-                            color: '#94a3b8'
-                        }
-                    }
-                }
-            }
-        });
+        return 'overview';
     },
 
-    generateUserGrowthData(totalUsers) {
-        const data = [];
-        let cumulative = Math.floor(totalUsers * 0.3); // Start at 30% of total
-        
-        for (let i = 0; i < 30; i++) {
-            // Add random growth each day
-            const dailyGrowth = Math.floor(Math.random() * 10) + 1;
-            cumulative += dailyGrowth;
-            data.push(cumulative);
-        }
-        
-        return data;
-    },
-
-    generateRevenueData(totalInvested) {
-        const data = [];
-        const monthlyAverage = totalInvested / 12;
-        
-        for (let i = 0; i < 12; i++) {
-            // Add some randomness to monthly data
-            const variation = (Math.random() * 0.4) - 0.2; // -20% to +20%
-            const monthlyRevenue = monthlyAverage * (1 + variation);
-            data.push(Math.round(monthlyRevenue));
-        }
-        
-        return data;
-    },
-
-    async loadAdminUsers() {
+    async loadAdminUsers(page = 1) {
         try {
-            const response = await this.apiRequest('/admin/users?limit=20&sort=-createdAt');
-            const users = response.data.users || [];
+            const response = await this.apiRequest(`/admin/users?page=${page}&limit=${this.config.ITEMS_PER_PAGE}`);
+            const users = response.data?.users || response.users || [];
+            const pagination = response.data?.pagination || response.pagination || {};
+            
+            this.state.adminUsers = users;
+            this.state.currentPage = pagination.page || 1;
+            this.state.totalPages = pagination.totalPages || 1;
             
             const table = document.getElementById('admin-users-table');
             if (table) {
                 table.innerHTML = users.map(user => `
                     <tr>
                         <td>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: ${this.getUserAvatarColor(user._id)}; 
-                                     display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
-                                    ${user.full_name.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                    <div style="font-weight: 500;">${user.full_name}</div>
-                                    <div style="font-size: 0.8rem; color: var(--text-muted);">${user.email}</div>
-                                </div>
-                            </div>
+                            <strong>${user.full_name || 'N/A'}</strong><br>
+                            <small>${user.email || 'N/A'}</small>
                         </td>
-                        <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+                        <td>${user.phone || 'N/A'}</td>
+                        <td>${new Date(user.createdAt || Date.now()).toLocaleDateString()}</td>
                         <td>
-                            <span class="status-badge ${user.kyc_verified ? 'approved' : 'pending'}">
-                                ${user.kyc_verified ? 'Verified' : 'Pending'}
+                            <span class="status-badge ${user.kyc_verified ? 'approved' : user.kyc_status === 'rejected' ? 'rejected' : 'pending'}">
+                                ${user.kyc_verified ? 'Verified' : user.kyc_status || 'Pending'}
                             </span>
                         </td>
-                        <td>₦${user.balance?.toLocaleString() || '0'}</td>
+                        <td>₦${(user.balance || 0).toLocaleString()}</td>
                         <td>
-                            <span class="status-badge ${user.status === 'active' ? 'approved' : 'pending'}">
-                                ${user.status || 'active'}
-                            </span>
-                        </td>
-                        <td>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;"
-                                        onclick="app.viewUserDetails('${user._id}')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;"
-                                        onclick="app.editUserRole('${user._id}', '${user.role}')">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                ${user.status === 'active' ? 
-                                    `<button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
-                                            onclick="app.toggleUserStatus('${user._id}', 'suspended')">
-                                        <i class="fas fa-ban"></i>
-                                    </button>` :
-                                    `<button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--success); color: white;"
-                                            onclick="app.toggleUserStatus('${user._id}', 'active')">
-                                        <i class="fas fa-check"></i>
-                                    </button>`
-                                }
-                            </div>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;"
+                                onclick="app.viewUserDetails('${user._id}')">
+                                View Details
+                            </button>
                         </td>
                     </tr>
                 `).join('');
             }
+            
+            this.updateAdminPagination();
             
         } catch (error) {
             console.error('Failed to load admin users:', error);
         }
     },
 
-    getUserAvatarColor(userId) {
-        // Generate consistent color based on user ID
-        const colors = [
-            '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899',
-            '#6366f1', '#14b8a6', '#f97316', '#ef4444', '#06b6d4'
-        ];
-        
-        // Simple hash function
-        let hash = 0;
-        for (let i = 0; i < userId.length; i++) {
-            hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    async viewUserDetails(userId) {
+        try {
+            const response = await this.apiRequest(`/admin/users/${userId}`);
+            const user = response.data?.user || response.user || response;
+            
+            // Create modal with user details
+            const modalContent = `
+                <div class="modal-header">
+                    <h2>User Details: ${user.full_name || 'N/A'}</h2>
+                    <button class="close-modal" onclick="app.closeModal('user-details-modal')">&times;</button>
+                </div>
+                <div style="max-height: 60vh; overflow-y: auto; padding: 1rem;">
+                    <div class="form-group">
+                        <label><strong>Personal Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Full Name:</strong> ${user.full_name || 'N/A'}</p>
+                            <p><strong>Email:</strong> ${user.email || 'N/A'}</p>
+                            <p><strong>Phone:</strong> ${user.phone || 'N/A'}</p>
+                            <p><strong>Country:</strong> ${user.country || 'N/A'}</p>
+                            <p><strong>Role:</strong> ${user.role || 'user'}</p>
+                            <p><strong>Status:</strong> ${user.is_active ? 'Active' : 'Inactive'}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><strong>Financial Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Balance:</strong> ₦${(user.balance || 0).toLocaleString()}</p>
+                            <p><strong>Total Earnings:</strong> ₦${(user.total_earnings || 0).toLocaleString()}</p>
+                            <p><strong>Referral Earnings:</strong> ₦${(user.referral_earnings || 0).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    ${user.bank_details ? `
+                    <div class="form-group">
+                        <label><strong>Bank Details</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Bank Name:</strong> ${user.bank_details.bank_name || 'N/A'}</p>
+                            <p><strong>Account Name:</strong> ${user.bank_details.account_name || 'N/A'}</p>
+                            <p><strong>Account Number:</strong> ${user.bank_details.account_number || 'N/A'}</p>
+                            <p><strong>Bank Code:</strong> ${user.bank_details.bank_code || 'N/A'}</p>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${user.wallet_address ? `
+                    <div class="form-group">
+                        <label><strong>Wallet Address</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p style="word-break: break-all;">${user.wallet_address}</p>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="form-group">
+                        <label><strong>KYC Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>KYC Status:</strong> ${user.kyc_verified ? 'Verified' : user.kyc_status || 'Not Submitted'}</p>
+                            <p><strong>ID Type:</strong> ${user.kyc_info?.id_type || 'N/A'}</p>
+                            <p><strong>ID Number:</strong> ${user.kyc_info?.id_number || 'N/A'}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><strong>Account Created</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p>${new Date(user.createdAt || Date.now()).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    ${this.state.isSuperAdmin ? `
+                    <div class="form-group">
+                        <label><strong>Admin Actions</strong></label>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button class="btn btn-outline" onclick="app.adminAdjustBalance('${user._id}')">
+                                Adjust Balance
+                            </button>
+                            <button class="btn btn-outline" onclick="app.adminUpdateRole('${user._id}')">
+                                Change Role
+                            </button>
+                            <button class="btn btn-outline" onclick="app.adminUpdateStatus('${user._id}', ${!user.is_active})">
+                                ${user.is_active ? 'Deactivate' : 'Activate'}
+                            </button>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            this.showCustomModal('user-details-modal', modalContent);
+            
+        } catch (error) {
+            console.error('Failed to load user details:', error);
+            this.showToast('Failed to load user details', 'error');
         }
-        
-        return colors[Math.abs(hash) % colors.length];
     },
 
     async loadAdminInvestments() {
         try {
             const response = await this.apiRequest('/admin/pending-investments');
-            const investments = response.data.investments || [];
+            const investments = response.data?.investments || response.investments || [];
+            
+            this.state.adminInvestments = investments;
             
             const table = document.getElementById('admin-investments-table');
             if (table) {
@@ -6008,138 +5236,335 @@ const app = {
                     <tr>
                         <td>${inv.user?.full_name || 'Unknown'}</td>
                         <td>${inv.plan?.name || 'Unknown'}</td>
-                        <td>₦${inv.amount.toLocaleString()}</td>
-                        <td>${new Date(inv.createdAt).toLocaleDateString()}</td>
-                        <td><span class="status-badge ${inv.status}">${inv.status}</span></td>
+                        <td>₦${(inv.amount || 0).toLocaleString()}</td>
+                        <td>${new Date(inv.createdAt || Date.now()).toLocaleDateString()}</td>
+                        <td><span class="status-badge ${inv.status || 'pending'}">${inv.status || 'Pending'}</span></td>
                         <td>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
-                                        onclick="app.approveInvestment('${inv._id}')">
-                                    Approve
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
-                                        onclick="app.rejectInvestment('${inv._id}')">
-                                    Reject
-                                </button>
-                            </div>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.adminViewInvestmentDetails('${inv._id}')">
+                                View
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.approveInvestment('${inv._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
+                                onclick="app.rejectInvestment('${inv._id}')">
+                                Reject
+                            </button>
                         </td>
                     </tr>
                 `).join('');
             }
-            
         } catch (error) {
             console.error('Failed to load admin investments:', error);
+        }
+    },
+
+    async adminViewInvestmentDetails(investmentId) {
+        try {
+            const response = await this.apiRequest(`/investments/${investmentId}`);
+            const investment = response.data?.investment || response.investment || response;
+            
+            let proofImages = '';
+            if (investment.payment_proof_url) {
+                proofImages = `
+                    <div class="form-group">
+                        <label><strong>Payment Proof</strong></label>
+                        <div style="margin-top: 0.5rem;">
+                            <img src="${investment.payment_proof_url}" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--accent-emerald);">
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const modalContent = `
+                <div class="modal-header">
+                    <h2>Investment Details</h2>
+                    <button class="close-modal" onclick="app.closeModal('investment-details-modal')">&times;</button>
+                </div>
+                <div style="max-height: 60vh; overflow-y: auto; padding: 1rem;">
+                    <div class="form-group">
+                        <label><strong>Investment Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Plan:</strong> ${investment.plan?.name || 'Unknown'}</p>
+                            <p><strong>Amount:</strong> ₦${(investment.amount || 0).toLocaleString()}</p>
+                            <p><strong>Status:</strong> ${investment.status || 'Pending'}</p>
+                            <p><strong>Auto Renew:</strong> ${investment.auto_renew ? 'Yes' : 'No'}</p>
+                            <p><strong>Created:</strong> ${new Date(investment.createdAt || Date.now()).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><strong>User Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Name:</strong> ${investment.user?.full_name || 'Unknown'}</p>
+                            <p><strong>Email:</strong> ${investment.user?.email || 'Unknown'}</p>
+                            <p><strong>Phone:</strong> ${investment.user?.phone || 'N/A'}</p>
+                        </div>
+                    </div>
+                    
+                    ${proofImages}
+                    
+                    <div class="form-group">
+                        <label><strong>Admin Actions</strong></label>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button class="btn btn-outline" onclick="app.approveInvestment('${investment._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="background: var(--error); color: white;"
+                                onclick="app.rejectInvestment('${investment._id}')">
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            this.showCustomModal('investment-details-modal', modalContent);
+            
+        } catch (error) {
+            console.error('Failed to load investment details:', error);
+            this.showToast('Failed to load investment details', 'error');
         }
     },
 
     async loadAdminDeposits() {
         try {
             const response = await this.apiRequest('/admin/pending-deposits');
-            const deposits = response.data.deposits || [];
+            const deposits = response.data?.deposits || response.deposits || [];
+            
+            this.state.adminDeposits = deposits;
             
             const table = document.getElementById('admin-deposits-table');
             if (table) {
                 table.innerHTML = deposits.map(deposit => `
                     <tr>
                         <td>${deposit.user?.full_name || 'Unknown'}</td>
-                        <td>₦${deposit.amount.toLocaleString()}</td>
-                        <td>${deposit.payment_method}</td>
-                        <td>${new Date(deposit.createdAt).toLocaleDateString()}</td>
-                        <td><span class="status-badge ${deposit.status}">${deposit.status}</span></td>
+                        <td>₦${(deposit.amount || 0).toLocaleString()}</td>
+                        <td>${new Date(deposit.createdAt || Date.now()).toLocaleDateString()}</td>
+                        <td><span class="status-badge ${deposit.status || 'pending'}">${deposit.status || 'Pending'}</span></td>
                         <td>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
-                                        onclick="app.approveDeposit('${deposit._id}')">
-                                    Approve
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
-                                        onclick="app.rejectDeposit('${deposit._id}')">
-                                    Reject
-                                </button>
-                            </div>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.adminViewDepositDetails('${deposit._id}')">
+                                View
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.approveDeposit('${deposit._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
+                                onclick="app.rejectDeposit('${deposit._id}')">
+                                Reject
+                            </button>
                         </td>
                     </tr>
                 `).join('');
             }
-            
         } catch (error) {
             console.error('Failed to load admin deposits:', error);
+        }
+    },
+
+    async adminViewDepositDetails(depositId) {
+        try {
+            const response = await this.apiRequest(`/deposits/${depositId}`);
+            const deposit = response.data?.deposit || response.deposit || response;
+            
+            let proofImage = '';
+            if (deposit.payment_proof_url) {
+                proofImage = `
+                    <div class="form-group">
+                        <label><strong>Payment Proof</strong></label>
+                        <div style="margin-top: 0.5rem;">
+                            <img src="${deposit.payment_proof_url}" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--accent-emerald);">
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const modalContent = `
+                <div class="modal-header">
+                    <h2>Deposit Details</h2>
+                    <button class="close-modal" onclick="app.closeModal('deposit-details-modal')">&times;</button>
+                </div>
+                <div style="max-height: 60vh; overflow-y: auto; padding: 1rem;">
+                    <div class="form-group">
+                        <label><strong>Deposit Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Amount:</strong> ₦${(deposit.amount || 0).toLocaleString()}</p>
+                            <p><strong>Payment Method:</strong> ${deposit.payment_method || 'N/A'}</p>
+                            <p><strong>Status:</strong> ${deposit.status || 'Pending'}</p>
+                            <p><strong>Created:</strong> ${new Date(deposit.createdAt || Date.now()).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><strong>User Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Name:</strong> ${deposit.user?.full_name || 'Unknown'}</p>
+                            <p><strong>Email:</strong> ${deposit.user?.email || 'Unknown'}</p>
+                            <p><strong>Balance Before:</strong> ₦${(deposit.user_balance_before || 0).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    ${proofImage}
+                    
+                    <div class="form-group">
+                        <label><strong>Admin Actions</strong></label>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button class="btn btn-outline" onclick="app.approveDeposit('${deposit._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="background: var(--error); color: white;"
+                                onclick="app.rejectDeposit('${deposit._id}')">
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            this.showCustomModal('deposit-details-modal', modalContent);
+            
+        } catch (error) {
+            console.error('Failed to load deposit details:', error);
+            this.showToast('Failed to load deposit details', 'error');
         }
     },
 
     async loadAdminWithdrawals() {
         try {
             const response = await this.apiRequest('/admin/pending-withdrawals');
-            const withdrawals = response.data.withdrawals || [];
+            const withdrawals = response.data?.withdrawals || response.withdrawals || [];
+            
+            this.state.adminWithdrawals = withdrawals;
             
             const table = document.getElementById('admin-withdrawals-table');
             if (table) {
                 table.innerHTML = withdrawals.map(withdrawal => `
                     <tr>
                         <td>${withdrawal.user?.full_name || 'Unknown'}</td>
-                        <td>₦${withdrawal.amount.toLocaleString()}</td>
-                        <td>₦${withdrawal.platform_fee?.toLocaleString() || '0'}</td>
-                        <td>₦${withdrawal.net_amount?.toLocaleString() || '0'}</td>
-                        <td>${withdrawal.payment_method}</td>
-                        <td>${new Date(withdrawal.createdAt).toLocaleDateString()}</td>
-                        <td><span class="status-badge ${withdrawal.status}">${withdrawal.status}</span></td>
+                        <td>₦${(withdrawal.amount || 0).toLocaleString()}</td>
+                        <td>₦${(withdrawal.platform_fee || 0).toLocaleString()}</td>
+                        <td>₦${(withdrawal.net_amount || 0).toLocaleString()}</td>
+                        <td>${new Date(withdrawal.createdAt || Date.now()).toLocaleDateString()}</td>
+                        <td><span class="status-badge ${withdrawal.status || 'pending'}">${withdrawal.status || 'Pending'}</span></td>
                         <td>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
-                                        onclick="app.approveWithdrawal('${withdrawal._id}')">
-                                    Approve
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
-                                        onclick="app.rejectWithdrawal('${withdrawal._id}')">
-                                    Reject
-                                </button>
-                            </div>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.adminViewWithdrawalDetails('${withdrawal._id}')">
+                                View
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
+                                onclick="app.approveWithdrawal('${withdrawal._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
+                                onclick="app.rejectWithdrawal('${withdrawal._id}')">
+                                Reject
+                            </button>
                         </td>
                     </tr>
                 `).join('');
             }
-            
         } catch (error) {
             console.error('Failed to load admin withdrawals:', error);
+        }
+    },
+
+    async adminViewWithdrawalDetails(withdrawalId) {
+        try {
+            const response = await this.apiRequest(`/withdrawals/${withdrawalId}`);
+            const withdrawal = response.data?.withdrawal || response.withdrawal || response;
+            
+            const modalContent = `
+                <div class="modal-header">
+                    <h2>Withdrawal Details</h2>
+                    <button class="close-modal" onclick="app.closeModal('withdrawal-details-modal')">&times;</button>
+                </div>
+                <div style="max-height: 60vh; overflow-y: auto; padding: 1rem;">
+                    <div class="form-group">
+                        <label><strong>Withdrawal Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Amount:</strong> ₦${(withdrawal.amount || 0).toLocaleString()}</p>
+                            <p><strong>Platform Fee:</strong> ₦${(withdrawal.platform_fee || 0).toLocaleString()}</p>
+                            <p><strong>Net Amount:</strong> ₦${(withdrawal.net_amount || 0).toLocaleString()}</p>
+                            <p><strong>Payment Method:</strong> ${withdrawal.payment_method || 'N/A'}</p>
+                            <p><strong>Status:</strong> ${withdrawal.status || 'Pending'}</p>
+                            <p><strong>Created:</strong> ${new Date(withdrawal.createdAt || Date.now()).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><strong>User Information</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Name:</strong> ${withdrawal.user?.full_name || 'Unknown'}</p>
+                            <p><strong>Email:</strong> ${withdrawal.user?.email || 'Unknown'}</p>
+                            <p><strong>Balance Before:</strong> ₦${(withdrawal.user_balance_before || 0).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    ${withdrawal.bank_details ? `
+                    <div class="form-group">
+                        <label><strong>Bank Details</strong></label>
+                        <div style="background: var(--secondary); padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                            <p><strong>Bank Name:</strong> ${withdrawal.bank_details.bank_name || 'N/A'}</p>
+                            <p><strong>Account Name:</strong> ${withdrawal.bank_details.account_name || 'N/A'}</p>
+                            <p><strong>Account Number:</strong> ${withdrawal.bank_details.account_number || 'N/A'}</p>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="form-group">
+                        <label><strong>Admin Actions</strong></label>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button class="btn btn-outline" onclick="app.approveWithdrawal('${withdrawal._id}')">
+                                Approve
+                            </button>
+                            <button class="btn btn-outline" style="background: var(--error); color: white;"
+                                onclick="app.rejectWithdrawal('${withdrawal._id}')">
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            this.showCustomModal('withdrawal-details-modal', modalContent);
+            
+        } catch (error) {
+            console.error('Failed to load withdrawal details:', error);
+            this.showToast('Failed to load withdrawal details', 'error');
         }
     },
 
     async loadAdminKYC() {
         try {
             const response = await this.apiRequest('/admin/pending-kyc');
-            const kycSubmissions = response.data.kyc_submissions || [];
+            const kycApplications = response.data?.kyc_applications || response.kyc_applications || [];
             
-            const table = document.getElementById('admin-kyc-table');
-            if (table) {
-                table.innerHTML = kycSubmissions.map(kyc => `
-                    <tr>
-                        <td>${kyc.user?.full_name || 'Unknown'}</td>
-                        <td>${kyc.id_type}</td>
-                        <td>${kyc.id_number}</td>
-                        <td>${new Date(kyc.createdAt).toLocaleDateString()}</td>
-                        <td><span class="status-badge ${kyc.status}">${kyc.status}</span></td>
-                        <td>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
-                                        onclick="app.viewKYCDetails('${kyc._id}')">
-                                    View
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; margin-right: 0.5rem;"
-                                        onclick="app.approveKYC('${kyc._id}')">
-                                    Approve
-                                </button>
-                                <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem; background: var(--error); color: white;"
-                                        onclick="app.rejectKYC('${kyc._id}')">
-                                    Reject
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `).join('');
-            }
+            this.state.adminKYC = kycApplications;
+            
+            // You can create a table for KYC applications if needed
+            console.log('KYC applications loaded:', kycApplications.length);
             
         } catch (error) {
             console.error('Failed to load admin KYC:', error);
+        }
+    },
+
+    async loadAdminTransactions() {
+        try {
+            const response = await this.apiRequest('/admin/transactions?limit=50');
+            const transactions = response.data?.transactions || response.transactions || [];
+            
+            this.state.adminTransactions = transactions;
+            
+            // You can create a table for all transactions if needed
+            console.log('Admin transactions loaded:', transactions.length);
+            
+        } catch (error) {
+            console.error('Failed to load admin transactions:', error);
         }
     },
 
@@ -6148,8 +5573,11 @@ const app = {
         if (!confirm('Approve this investment?')) return;
         
         try {
+            const remarks = prompt('Enter approval remarks (optional):');
+            
             await this.apiRequest(`/admin/investments/${investmentId}/approve`, {
-                method: 'POST'
+                method: 'POST',
+                body: remarks ? { remarks } : {}
             });
             
             this.showToast('Investment approved successfully!', 'success');
@@ -6162,8 +5590,13 @@ const app = {
     },
 
     async rejectInvestment(investmentId) {
-        const reason = prompt('Enter rejection reason:');
-        if (!reason) return;
+        const reason = prompt('Enter rejection reason (required):');
+        if (!reason) {
+            this.showToast('Rejection reason is required', 'warning');
+            return;
+        }
+        
+        if (!confirm(`Reject this investment? Reason: ${reason}`)) return;
         
         try {
             await this.apiRequest(`/admin/investments/${investmentId}/reject`, {
@@ -6173,6 +5606,7 @@ const app = {
             
             this.showToast('Investment rejected!', 'success');
             this.loadAdminInvestments();
+            this.updateAdminDashboard();
             
         } catch (error) {
             console.error('Failed to reject investment:', error);
@@ -6183,8 +5617,11 @@ const app = {
         if (!confirm('Approve this deposit?')) return;
         
         try {
+            const remarks = prompt('Enter approval remarks (optional):');
+            
             await this.apiRequest(`/admin/deposits/${depositId}/approve`, {
-                method: 'POST'
+                method: 'POST',
+                body: remarks ? { remarks } : {}
             });
             
             this.showToast('Deposit approved successfully!', 'success');
@@ -6197,8 +5634,13 @@ const app = {
     },
 
     async rejectDeposit(depositId) {
-        const reason = prompt('Enter rejection reason:');
-        if (!reason) return;
+        const reason = prompt('Enter rejection reason (required):');
+        if (!reason) {
+            this.showToast('Rejection reason is required', 'warning');
+            return;
+        }
+        
+        if (!confirm(`Reject this deposit? Reason: ${reason}`)) return;
         
         try {
             await this.apiRequest(`/admin/deposits/${depositId}/reject`, {
@@ -6208,6 +5650,7 @@ const app = {
             
             this.showToast('Deposit rejected!', 'success');
             this.loadAdminDeposits();
+            this.updateAdminDashboard();
             
         } catch (error) {
             console.error('Failed to reject deposit:', error);
@@ -6218,8 +5661,18 @@ const app = {
         if (!confirm('Approve this withdrawal?')) return;
         
         try {
+            const transactionId = prompt('Enter transaction ID (optional):');
+            const paymentProofUrl = prompt('Enter payment proof URL (optional):');
+            const remarks = prompt('Enter approval remarks (optional):');
+            
+            const body = {};
+            if (transactionId) body.transaction_id = transactionId;
+            if (paymentProofUrl) body.payment_proof_url = paymentProofUrl;
+            if (remarks) body.remarks = remarks;
+            
             await this.apiRequest(`/admin/withdrawals/${withdrawalId}/approve`, {
-                method: 'POST'
+                method: 'POST',
+                body: Object.keys(body).length > 0 ? body : {}
             });
             
             this.showToast('Withdrawal approved successfully!', 'success');
@@ -6232,8 +5685,13 @@ const app = {
     },
 
     async rejectWithdrawal(withdrawalId) {
-        const reason = prompt('Enter rejection reason:');
-        if (!reason) return;
+        const reason = prompt('Enter rejection reason (required):');
+        if (!reason) {
+            this.showToast('Rejection reason is required', 'warning');
+            return;
+        }
+        
+        if (!confirm(`Reject this withdrawal? Reason: ${reason}`)) return;
         
         try {
             await this.apiRequest(`/admin/withdrawals/${withdrawalId}/reject`, {
@@ -6243,300 +5701,60 @@ const app = {
             
             this.showToast('Withdrawal rejected!', 'success');
             this.loadAdminWithdrawals();
+            this.updateAdminDashboard();
             
         } catch (error) {
             console.error('Failed to reject withdrawal:', error);
         }
     },
 
-    async approveKYC(kycId) {
-        if (!confirm('Approve this KYC submission?')) return;
-        
-        try {
-            await this.apiRequest(`/admin/kyc/${kycId}/approve`, {
-                method: 'POST'
-            });
-            
-            this.showToast('KYC approved successfully!', 'success');
-            this.loadAdminKYC();
-            
-        } catch (error) {
-            console.error('Failed to approve KYC:', error);
-        }
-    },
-
-    async rejectKYC(kycId) {
-        const reason = prompt('Enter rejection reason:');
-        if (!reason) return;
-        
-        try {
-            await this.apiRequest(`/admin/kyc/${kycId}/reject`, {
-                method: 'POST',
-                body: { remarks: reason }
-            });
-            
-            this.showToast('KYC rejected!', 'success');
-            this.loadAdminKYC();
-            
-        } catch (error) {
-            console.error('Failed to reject KYC:', error);
-        }
-    },
-
-    async viewKYCDetails(kycId) {
-        try {
-            const response = await this.apiRequest(`/admin/kyc/${kycId}`);
-            const kyc = response.data.kyc;
-            
-            this.showKYCDetailsModal(kyc);
-            
-        } catch (error) {
-            console.error('Failed to load KYC details:', error);
-        }
-    },
-
-    showKYCDetailsModal(kyc) {
-        const modalHTML = `
-            <div class="modal" id="kyc-details-modal">
-                <div class="modal-content" style="max-width: 800px; max-height: 90vh;">
-                    <div class="modal-header">
-                        <h2>KYC Details - ${kyc.user?.full_name || 'Unknown'}</h2>
-                        <button class="close-modal" onclick="app.closeModal('kyc-details-modal')">&times;</button>
-                    </div>
-                    <div style="padding: 1rem; overflow-y: auto;">
-                        <div style="margin-bottom: 2rem;">
-                            <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">User Information</h3>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
-                                <div>
-                                    <label>Full Name</label>
-                                    <div style="padding: 0.5rem; background: var(--secondary); border-radius: 5px;">
-                                        ${kyc.user?.full_name || 'N/A'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label>Email</label>
-                                    <div style="padding: 0.5rem; background: var(--secondary); border-radius: 5px;">
-                                        ${kyc.user?.email || 'N/A'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label>ID Type</label>
-                                    <div style="padding: 0.5rem; background: var(--secondary); border-radius: 5px;">
-                                        ${kyc.id_type}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label>ID Number</label>
-                                    <div style="padding: 0.5rem; background: var(--secondary); border-radius: 5px;">
-                                        ${kyc.id_number}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="margin-bottom: 2rem;">
-                            <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">Documents</h3>
-                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                                ${kyc.id_front_url ? `
-                                    <div>
-                                        <label>ID Front</label>
-                                        <img src="${kyc.id_front_url}" alt="ID Front" 
-                                             style="width: 100%; height: 200px; object-fit: cover; border-radius: 5px; cursor: pointer;"
-                                             onclick="window.open('${kyc.id_front_url}', '_blank')">
-                                    </div>
-                                ` : ''}
-                                ${kyc.id_back_url ? `
-                                    <div>
-                                        <label>ID Back</label>
-                                        <img src="${kyc.id_back_url}" alt="ID Back" 
-                                             style="width: 100%; height: 200px; object-fit: cover; border-radius: 5px; cursor: pointer;"
-                                             onclick="window.open('${kyc.id_back_url}', '_blank')">
-                                    </div>
-                                ` : ''}
-                                ${kyc.selfie_with_id_url ? `
-                                    <div>
-                                        <label>Selfie with ID</label>
-                                        <img src="${kyc.selfie_with_id_url}" alt="Selfie with ID" 
-                                             style="width: 100%; height: 200px; object-fit: cover; border-radius: 5px; cursor: pointer;"
-                                             onclick="window.open('${kyc.selfie_with_id_url}', '_blank')">
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                        
-                        ${kyc.remarks ? `
-                            <div style="margin-bottom: 2rem;">
-                                <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">Remarks</h3>
-                                <div style="padding: 1rem; background: var(--secondary); border-radius: 5px;">
-                                    ${kyc.remarks}
-                                </div>
-                            </div>
-                        ` : ''}
-                        
-                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                            <button class="btn btn-outline" onclick="app.approveKYC('${kyc._id}'); app.closeModal('kyc-details-modal')">
-                                Approve
-                            </button>
-                            <button class="btn btn-outline" style="background: var(--error); color: white;"
-                                    onclick="app.rejectKYC('${kyc._id}'); app.closeModal('kyc-details-modal')">
-                                Reject
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Add modal to DOM
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalHTML;
-        document.body.appendChild(modalContainer);
-        
-        // Show modal
-        document.getElementById('kyc-details-modal').style.display = 'flex';
-    },
-
-    async viewUserDetails(userId) {
-        try {
-            const response = await this.apiRequest(`/admin/users/${userId}`);
-            const user = response.data.user;
-            
-            this.showUserDetailsModal(user);
-            
-        } catch (error) {
-            console.error('Failed to load user details:', error);
-        }
-    },
-
-    showUserDetailsModal(user) {
-        const modalHTML = `
-            <div class="modal" id="user-details-modal">
-                <div class="modal-content" style="max-width: 800px; max-height: 90vh;">
-                    <div class="modal-header">
-                        <h2>User Details - ${user.full_name}</h2>
-                        <button class="close-modal" onclick="app.closeModal('user-details-modal')">&times;</button>
-                    </div>
-                    <div style="padding: 1rem; overflow-y: auto;">
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-bottom: 2rem;">
-                            <div>
-                                <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">Basic Information</h3>
-                                <div style="background: var(--secondary); padding: 1.5rem; border-radius: 10px;">
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Full Name</label>
-                                        <div>${user.full_name}</div>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Email</label>
-                                        <div>${user.email}</div>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Phone</label>
-                                        <div>${user.phone || 'N/A'}</div>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Country</label>
-                                        <div>${user.country || 'N/A'}</div>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Joined Date</label>
-                                        <div>${new Date(user.createdAt).toLocaleDateString()}</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">Account Status</h3>
-                                <div style="background: var(--secondary); padding: 1.5rem; border-radius: 10px;">
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Status</label>
-                                        <span class="status-badge ${user.status}">${user.status}</span>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Role</label>
-                                        <span class="status-badge ${user.role}">${user.role}</span>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">KYC Status</label>
-                                        <span class="status-badge ${user.kyc_verified ? 'approved' : 'pending'}">
-                                            ${user.kyc_verified ? 'Verified' : 'Pending'}
-                                        </span>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Referral Code</label>
-                                        <div>${user.referral_code || 'N/A'}</div>
-                                    </div>
-                                    <div style="margin-bottom: 1rem;">
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Last Login</label>
-                                        <div>${user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="margin-bottom: 2rem;">
-                            <h3 style="color: var(--accent-gold); margin-bottom: 1rem;">Financial Information</h3>
-                            <div style="background: var(--secondary); padding: 1.5rem; border-radius: 10px;">
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
-                                    <div>
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Balance</label>
-                                        <div style="font-size: 1.5rem; color: var(--accent-gold);">₦${user.balance?.toLocaleString() || '0'}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Total Earned</label>
-                                        <div style="font-size: 1.5rem; color: var(--accent-emerald);">₦${user.total_earnings?.toLocaleString() || '0'}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Referral Earnings</label>
-                                        <div style="font-size: 1.5rem; color: var(--accent-purple);">₦${user.referral_earnings?.toLocaleString() || '0'}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: var(--text-muted); font-size: 0.9rem;">Total Invested</label>
-                                        <div style="font-size: 1.5rem; color: var(--accent-blue);">₦${user.total_invested?.toLocaleString() || '0'}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                            <button class="btn btn-outline" onclick="app.editUserRole('${user._id}', '${user.role}')">
-                                Edit Role
-                            </button>
-                            ${user.status === 'active' ? 
-                                `<button class="btn btn-outline" style="background: var(--error); color: white;"
-                                        onclick="app.toggleUserStatus('${user._id}', 'suspended')">
-                                    Suspend User
-                                </button>` :
-                                `<button class="btn btn-outline" style="background: var(--success); color: white;"
-                                        onclick="app.toggleUserStatus('${user._id}', 'active')">
-                                    Activate User
-                                </button>`
-                            }
-                            <button class="btn btn-outline" onclick="app.adjustUserBalance('${user._id}', ${user.balance})">
-                                Adjust Balance
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Add modal to DOM
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalHTML;
-        document.body.appendChild(modalContainer);
-        
-        // Show modal
-        document.getElementById('user-details-modal').style.display = 'flex';
-    },
-
-    async editUserRole(userId, currentRole) {
-        const newRole = prompt('Enter new role (user/admin/super_admin):', currentRole);
-        if (!newRole || newRole === currentRole) return;
-        
-        if (!['user', 'admin', 'super_admin'].includes(newRole)) {
-            this.showToast('Invalid role. Must be user, admin, or super_admin', 'error');
+    // Advanced admin functions
+    async adminAdjustBalance(userId) {
+        const amount = parseFloat(prompt('Enter amount:'));
+        if (isNaN(amount)) {
+            this.showToast('Invalid amount', 'error');
             return;
         }
+        
+        const type = prompt('Enter type (add/subtract/set):', 'add');
+        if (!['add', 'subtract', 'set'].includes(type)) {
+            this.showToast('Invalid type. Must be add, subtract, or set', 'error');
+            return;
+        }
+        
+        const description = prompt('Enter description:') || 'Balance adjustment';
+        const reference = prompt('Enter reference (optional):') || undefined;
+        
+        if (!confirm(`Are you sure you want to ${type} ₦${amount.toLocaleString()} to/from user's balance?`)) return;
+        
+        try {
+            await this.apiRequest(`/admin/users/${userId}/balance`, {
+                method: 'PUT',
+                body: {
+                    amount,
+                    type,
+                    description,
+                    reference
+                }
+            });
+            
+            this.showToast(`Balance ${type}ed successfully!`, 'success');
+            this.viewUserDetails(userId);
+            this.loadAdminUsers();
+            
+        } catch (error) {
+            console.error('Failed to adjust balance:', error);
+        }
+    },
+
+    async adminUpdateRole(userId) {
+        const newRole = prompt('Enter new role (user/admin/super_admin):', 'user');
+        if (!['user', 'admin', 'super_admin'].includes(newRole)) {
+            this.showToast('Invalid role', 'error');
+            return;
+        }
+        
+        if (!confirm(`Change user role to ${newRole}?`)) return;
         
         try {
             await this.apiRequest(`/admin/users/${userId}/role`, {
@@ -6544,62 +5762,49 @@ const app = {
                 body: { role: newRole }
             });
             
-            this.showToast(`User role updated to ${newRole}`, 'success');
+            this.showToast('Role updated successfully!', 'success');
+            this.viewUserDetails(userId);
             this.loadAdminUsers();
-            this.closeModal('user-details-modal');
             
         } catch (error) {
-            console.error('Failed to update user role:', error);
+            console.error('Failed to update role:', error);
         }
     },
 
-    async toggleUserStatus(userId, newStatus) {
-        if (!confirm(`Are you sure you want to ${newStatus === 'suspended' ? 'suspend' : 'activate'} this user?`)) return;
+    async adminUpdateStatus(userId, isActive) {
+        const status = isActive ? 'activate' : 'deactivate';
+        if (!confirm(`${status.charAt(0).toUpperCase() + status.slice(1)} this user?`)) return;
         
         try {
             await this.apiRequest(`/admin/users/${userId}/status`, {
                 method: 'PUT',
-                body: { status: newStatus }
+                body: { is_active: isActive }
             });
             
-            this.showToast(`User ${newStatus === 'suspended' ? 'suspended' : 'activated'} successfully`, 'success');
+            this.showToast(`User ${status}d successfully!`, 'success');
+            this.viewUserDetails(userId);
             this.loadAdminUsers();
-            this.closeModal('user-details-modal');
             
         } catch (error) {
-            console.error('Failed to toggle user status:', error);
+            console.error('Failed to update status:', error);
         }
     },
 
-    async adjustUserBalance(userId, currentBalance) {
-        const adjustment = prompt(`Current balance: ₦${currentBalance.toLocaleString()}\n\nEnter adjustment amount (positive to add, negative to deduct):`, '0');
-        if (adjustment === null) return;
-        
-        const amount = parseFloat(adjustment);
-        if (isNaN(amount)) {
-            this.showToast('Invalid amount', 'error');
-            return;
-        }
-        
-        const reason = prompt('Enter reason for adjustment:');
-        if (!reason) return;
+    async adminVerifyBank(userId) {
+        const verified = confirm('Verify bank details?') ? true : false;
+        const remarks = prompt('Enter remarks (optional):');
         
         try {
-            await this.apiRequest(`/admin/users/${userId}/balance`, {
-                method: 'PUT',
-                body: { 
-                    amount: amount,
-                    reason: reason,
-                    type: amount >= 0 ? 'credit' : 'debit'
-                }
+            await this.apiRequest(`/admin/users/${userId}/verify-bank`, {
+                method: 'POST',
+                body: { verified, remarks }
             });
             
-            this.showToast(`Balance adjusted by ₦${Math.abs(amount).toLocaleString()}`, 'success');
-            this.loadAdminUsers();
-            this.closeModal('user-details-modal');
+            this.showToast(`Bank details ${verified ? 'verified' : 'unverified'}!`, 'success');
+            this.viewUserDetails(userId);
             
         } catch (error) {
-            console.error('Failed to adjust user balance:', error);
+            console.error('Failed to verify bank:', error);
         }
     },
 
@@ -6612,10 +5817,10 @@ const app = {
         try {
             await this.apiRequest('/auth/forgot-password', {
                 method: 'POST',
-                body: { email: email }
+                body: { email }
             });
             
-            this.showToast('Password reset instructions sent to your email', 'success');
+            this.showToast('Password reset instructions sent to your email!', 'success');
             this.closeModal('password-reset-modal');
             
         } catch (error) {
@@ -6623,13 +5828,113 @@ const app = {
         }
     },
 
+    async handleResetPassword(token, newPassword) {
+        try {
+            await this.apiRequest(`/auth/reset-password/${token}`, {
+                method: 'POST',
+                body: { password: newPassword }
+            });
+            
+            this.showToast('Password reset successfully! Please login.', 'success');
+            this.showPage('login');
+            
+        } catch (error) {
+            console.error('Reset password error:', error);
+        }
+    },
+
+    // ==================== WALLET ADDRESS UPDATE ====================
+    async updateWalletAddress(address) {
+        try {
+            await this.apiRequest('/profile/wallet', {
+                method: 'PUT',
+                body: { wallet_address: address }
+            });
+            
+            this.showToast('Wallet address updated successfully!', 'success');
+            
+        } catch (error) {
+            console.error('Failed to update wallet address:', error);
+        }
+    },
+
+    // ==================== NOTIFICATION FUNCTIONS ====================
+    async loadNotifications() {
+        try {
+            const response = await this.apiRequest('/notifications');
+            const notifications = response.data?.notifications || response.notifications || [];
+            
+            this.state.notifications = notifications;
+            
+            // Update notification badge if exists
+            const unreadCount = notifications.filter(n => !n.read).length;
+            const badge = document.getElementById('notification-badge');
+            if (badge) {
+                badge.textContent = unreadCount;
+                badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+            }
+            
+        } catch (error) {
+            console.error('Failed to load notifications:', error);
+        }
+    },
+
+    async markNotificationAsRead(notificationId) {
+        try {
+            await this.apiRequest(`/notifications/${notificationId}/read`, {
+                method: 'POST'
+            });
+            
+            this.loadNotifications();
+            
+        } catch (error) {
+            console.error('Failed to mark notification as read:', error);
+        }
+    },
+
+    async markAllNotificationsAsRead() {
+        try {
+            await this.apiRequest('/notifications/read-all', {
+                method: 'POST'
+            });
+            
+            this.loadNotifications();
+            this.showToast('All notifications marked as read', 'success');
+            
+        } catch (error) {
+            console.error('Failed to mark all notifications as read:', error);
+        }
+    },
+
+    async adminSendNotification(title, message, type = 'info', userId = null) {
+        try {
+            await this.apiRequest('/admin/notifications/send', {
+                method: 'POST',
+                body: {
+                    user_id: userId,
+                    title,
+                    message,
+                    type
+                }
+            });
+            
+            this.showToast('Notification sent successfully!', 'success');
+            
+        } catch (error) {
+            console.error('Failed to send notification:', error);
+        }
+    },
+
     // ==================== UTILITY FUNCTIONS ====================
     logout() {
-        if (confirm('Are you sure you want to logout?')) {
-            this.clearAuthData();
-            this.showToast('You have been logged out.', 'info');
-            this.showPage('home');
-        }
+        this.state.currentUser = null;
+        this.state.token = null;
+        this.state.isAdmin = false;
+        this.state.isSuperAdmin = false;
+        this.state.isAuthenticated = false;
+        localStorage.removeItem('raw_wealthy_token');
+        this.showToast('You have been logged out.', 'info');
+        this.showPage('home');
     },
 
     setLoadingState(buttonId, isLoading) {
@@ -6684,6 +5989,42 @@ const app = {
         }, 3000);
     },
 
+    showCustomModal(modalId, content) {
+        // Remove existing modal if any
+        const existingModal = document.getElementById(modalId);
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Create new modal
+        const modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 800px;">
+                ${content}
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Show modal
+        modal.style.display = 'flex';
+        
+        // Add click outside to close
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                this.closeModal(modalId);
+            }
+        });
+        
+        // Add close button handler
+        const closeBtn = modal.querySelector('.close-modal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeModal(modalId));
+        }
+    },
+
     // ==================== UI HELPERS ====================
     toggleTheme() {
         const body = document.body;
@@ -6693,12 +6034,12 @@ const app = {
             body.classList.remove('light-mode');
             icon.classList.remove('fa-sun');
             icon.classList.add('fa-moon');
-            localStorage.setItem(this.config.STORAGE_KEYS.THEME, 'dark');
+            localStorage.setItem('theme', 'dark');
         } else {
             body.classList.add('light-mode');
             icon.classList.remove('fa-moon');
             icon.classList.add('fa-sun');
-            localStorage.setItem(this.config.STORAGE_KEYS.THEME, 'light');
+            localStorage.setItem('theme', 'light');
         }
     },
 
@@ -6820,6 +6161,7 @@ const app = {
 
     animateValue(element, start, end, duration, suffix = '') {
         let startTimestamp = null;
+        
         const step = (timestamp) => {
             if (!startTimestamp) startTimestamp = timestamp;
             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
@@ -6835,6 +6177,7 @@ const app = {
                 window.requestAnimationFrame(step);
             }
         };
+        
         window.requestAnimationFrame(step);
     },
 
@@ -6847,6 +6190,91 @@ const app = {
             return '₦' + (value / 1000).toFixed(1) + 'K';
         }
         return '₦' + value.toLocaleString();
+    },
+
+    searchUsers(searchTerm) {
+        if (!searchTerm) {
+            this.loadAdminUsers();
+            return;
+        }
+        
+        const filteredUsers = this.state.adminUsers.filter(user => {
+            const searchLower = searchTerm.toLowerCase();
+            return (
+                (user.full_name && user.full_name.toLowerCase().includes(searchLower)) ||
+                (user.email && user.email.toLowerCase().includes(searchLower)) ||
+                (user.phone && user.phone.includes(searchTerm))
+            );
+        });
+        
+        const table = document.getElementById('admin-users-table');
+        if (table) {
+            table.innerHTML = filteredUsers.map(user => `
+                <tr>
+                    <td>
+                        <strong>${user.full_name || 'N/A'}</strong><br>
+                        <small>${user.email || 'N/A'}</small>
+                    </td>
+                    <td>${user.phone || 'N/A'}</td>
+                    <td>${new Date(user.createdAt || Date.now()).toLocaleDateString()}</td>
+                    <td>
+                        <span class="status-badge ${user.kyc_verified ? 'approved' : user.kyc_status === 'rejected' ? 'rejected' : 'pending'}">
+                            ${user.kyc_verified ? 'Verified' : user.kyc_status || 'Pending'}
+                        </span>
+                    </td>
+                    <td>₦${(user.balance || 0).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-outline" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;"
+                            onclick="app.viewUserDetails('${user._id}')">
+                            View Details
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    },
+
+    updateAdminPagination() {
+        const paginationContainer = document.getElementById('admin-pagination');
+        if (!paginationContainer) return;
+        
+        const { currentPage, totalPages } = this.state;
+        
+        let paginationHTML = '';
+        
+        // Previous button
+        paginationHTML += `
+            <button class="btn btn-outline ${currentPage === 1 ? 'disabled' : ''}" 
+                ${currentPage === 1 ? 'disabled' : ''}
+                onclick="app.loadAdminUsers(${currentPage - 1})">
+                Previous
+            </button>
+        `;
+        
+        // Page numbers
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                paginationHTML += `
+                    <button class="btn ${currentPage === i ? 'btn-primary' : 'btn-outline'}"
+                        onclick="app.loadAdminUsers(${i})">
+                        ${i}
+                    </button>
+                `;
+            } else if (i === currentPage - 3 || i === currentPage + 3) {
+                paginationHTML += `<span style="padding: 0.5rem;">...</span>`;
+            }
+        }
+        
+        // Next button
+        paginationHTML += `
+            <button class="btn btn-outline ${currentPage === totalPages ? 'disabled' : ''}" 
+                ${currentPage === totalPages ? 'disabled' : ''}
+                onclick="app.loadAdminUsers(${currentPage + 1})">
+                Next
+            </button>
+        `;
+        
+        paginationContainer.innerHTML = paginationHTML;
     },
 
     // ==================== TAB SWITCHING ====================
@@ -6906,7 +6334,7 @@ const app = {
 
     switchAdminTab(tab) {
         // Hide all tabs
-        ['overview', 'users', 'investments', 'deposits', 'withdrawals', 'kyc', 'analytics'].forEach(tabId => {
+        ['overview', 'users', 'investments', 'deposits', 'withdrawals', 'kyc', 'transactions'].forEach(tabId => {
             const element = document.getElementById(`${tabId}-tab`);
             if (element) element.style.display = 'none';
         });
@@ -6931,159 +6359,31 @@ const app = {
         });
         
         // Load tab data
-        if (tab === 'users') this.loadAdminUsers();
-        if (tab === 'investments') this.loadAdminInvestments();
-        if (tab === 'deposits') this.loadAdminDeposits();
-        if (tab === 'withdrawals') this.loadAdminWithdrawals();
-        if (tab === 'kyc') this.loadAdminKYC();
+        switch(tab) {
+            case 'users':
+                this.loadAdminUsers();
+                break;
+            case 'investments':
+                this.loadAdminInvestments();
+                break;
+            case 'deposits':
+                this.loadAdminDeposits();
+                break;
+            case 'withdrawals':
+                this.loadAdminWithdrawals();
+                break;
+            case 'kyc':
+                this.loadAdminKYC();
+                break;
+            case 'transactions':
+                this.loadAdminTransactions();
+                break;
+        }
     },
 
     toggleFaq(element) {
         const faqItem = element.parentElement;
         faqItem.classList.toggle('active');
-    },
-
-    // ==================== REAL-TIME UPDATES ====================
-    initRealTimeUpdates() {
-        // Initialize real-time update system
-        this.state.realTimeUpdates = {
-            lastEarningUpdate: new Date(),
-            lastBalanceUpdate: new Date(),
-            lastNotificationCheck: new Date(),
-            pendingUpdates: 0
-        };
-    },
-
-    initAutoRefresh() {
-        // Dashboard auto-refresh
-        this.state.refreshIntervals.dashboard = setInterval(() => {
-            if (document.getElementById('dashboard-page')?.style.display === 'flex') {
-                this.updateDashboard();
-            }
-        }, this.config.DASHBOARD_REFRESH_INTERVAL);
-        
-        // Admin dashboard auto-refresh
-        this.state.refreshIntervals.admin = setInterval(() => {
-            if (document.getElementById('admin-page')?.style.display === 'flex') {
-                this.updateAdminDashboard();
-            }
-        }, this.config.DASHBOARD_REFRESH_INTERVAL);
-    },
-
-    initNotificationPolling() {
-        this.state.refreshIntervals.notifications = setInterval(() => {
-            if (this.state.isAuthenticated) {
-                this.loadNotifications();
-            }
-        }, this.config.NOTIFICATION_REFRESH_INTERVAL);
-    },
-
-    startDashboardRefresh() {
-        // Clear existing interval
-        if (this.state.refreshIntervals.dashboard) {
-            clearInterval(this.state.refreshIntervals.dashboard);
-        }
-        
-        // Start new interval
-        this.state.refreshIntervals.dashboard = setInterval(() => {
-            this.updateDashboard();
-        }, this.config.DASHBOARD_REFRESH_INTERVAL);
-    },
-
-    startAdminRefresh() {
-        // Clear existing interval
-        if (this.state.refreshIntervals.admin) {
-            clearInterval(this.state.refreshIntervals.admin);
-        }
-        
-        // Start new interval
-        this.state.refreshIntervals.admin = setInterval(() => {
-            this.updateAdminDashboard();
-        }, this.config.DASHBOARD_REFRESH_INTERVAL);
-    },
-
-    clearAllIntervals() {
-        Object.values(this.state.refreshIntervals).forEach(interval => {
-            if (interval) {
-                clearInterval(interval);
-            }
-        });
-        this.state.refreshIntervals = {};
-    },
-
-    // ==================== DATA MANAGEMENT ====================
-    async loadUserData() {
-        // Load all user data in parallel
-        await Promise.all([
-            this.loadNotifications(),
-            this.loadKYCStatus(),
-            this.loadBankDetails()
-        ]);
-    },
-
-    cacheUserData(user, stats) {
-        const userData = {
-            user: user,
-            stats: stats,
-            timestamp: new Date().getTime()
-        };
-        
-        localStorage.setItem(
-            this.config.STORAGE_KEYS.USER_DATA,
-            JSON.stringify(userData)
-        );
-    },
-
-    loadCachedDashboardData() {
-        const cachedData = localStorage.getItem(this.config.STORAGE_KEYS.USER_DATA);
-        if (cachedData) {
-            try {
-                const userData = JSON.parse(cachedData);
-                const age = new Date().getTime() - userData.timestamp;
-                
-                // Use cached data if less than 5 minutes old
-                if (age < 5 * 60 * 1000) {
-                    this.updateDashboardStats(userData.user, userData.stats);
-                    this.showToast('Using cached data', 'warning');
-                }
-            } catch (error) {
-                console.error('Failed to parse cached data:', error);
-            }
-        }
-    },
-
-    // ==================== NETWORK & PERFORMANCE ====================
-    handleNetworkStatusChange(isOnline) {
-        if (isOnline) {
-            this.showToast('Back online. Syncing data...', 'success');
-            // Refresh data when coming back online
-            if (this.state.isAuthenticated) {
-                this.updateDashboard();
-            }
-        } else {
-            this.showToast('You are offline. Some features may be limited.', 'warning');
-        }
-    },
-
-    handleVisibilityChange() {
-        if (!document.hidden && this.state.isAuthenticated) {
-            // Refresh data when tab becomes visible
-            this.updateDashboard();
-            this.loadNotifications();
-        }
-    },
-
-    initServiceWorker() {
-        // Register service worker for PWA capabilities
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js')
-                .then(registration => {
-                    console.log('Service Worker registered:', registration);
-                })
-                .catch(error => {
-                    console.error('Service Worker registration failed:', error);
-                });
-        }
     },
 
     // ==================== TWO-FACTOR AUTHENTICATION ====================
@@ -7125,15 +6425,6 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     });
 });
 
-// Global error handler
-window.onerror = function(message, source, lineno, colno, error) {
-    console.error('Global error:', { message, source, lineno, colno, error });
-    return true;
-};
-
-// Unload handler to clear intervals
-window.addEventListener('beforeunload', function() {
-    app.clearAllIntervals();
-});</script>
- </body>
- </html>
+</script>
+</body>
+</html>
