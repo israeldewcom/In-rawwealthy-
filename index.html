@@ -3717,24 +3717,22 @@
 <script>// ==================== RAW WEALTHY FRONTEND v40.0 - FULL BACKEND INTEGRATION ====================
 
 const app = {
-    // ==================== ENHANCED CONFIGURATION ====================
-    config: {
-        API_BASE_URL: (() => {
-            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                return 'http://localhost:10000/api';
-            }
-            return window.location.origin.includes('vercel.app')
-                ? 'https://real-wealthy-1.onrender.com'
-                : '/api';
-        })(),
-        VERSION: '40.0.0',
-        ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
-        MIN_INVESTMENT: 3500,
-        MIN_DEPOSIT: 500,
-        MIN_WITHDRAWAL: 1000,
-        PLATFORM_FEE_PERCENT: 5,
-        REFERRAL_COMMISSION_PERCENT: 15,
-        WELCOME_BONUS: 10000,
+            // ==================== CONFIGURATION ====================
+         // Replace lines ~1530-1540 with:
+config: {
+  API_BASE_URL: 'https://real-wealthy-1.onrender.com/api',
+  // ... rest of config
+}
+                
+                VERSION: '35.0.0',
+                ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
+                MIN_INVESTMENT: 3500,
+                MIN_DEPOSIT: 500,
+                MIN_WITHDRAWAL: 1000,
+                PLATFORM_FEE_PERCENT: 5,
+                REFERRAL_COMMISSION_PERCENT: 15,
+                WELCOME_BONUS: 10000
+            },
         DEFAULT_BANK_DETAILS: {
             bank_name: "Opay",
             account_name: "Israel Wycliffe",
