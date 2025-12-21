@@ -3718,11 +3718,19 @@
 
 const app = {
             // ==================== CONFIGURATION ====================
-         // Replace lines ~1530-1540 with:
-config: {
-  API_BASE_URL: 'https://real-wealthy-1.onrender.com/api',
-  // ... rest of config
-
+           const app = {
+            // ==================== CONFIGURATION ====================
+            config: {
+                // DYNAMIC BACKEND URL - Auto-detects based on environment
+                API_BASE_URL: (() => {
+                    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                        return 'http://localhost:10000/api';
+                    }
+                    // Use your actual backend URL
+                    return window.location.origin.includes('vercel.app') 
+                        ? 'https://real-wealthy-1.onrender.com'
+                        : '/api';
+                })(),
                 
                 VERSION: '35.0.0',
                 ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
