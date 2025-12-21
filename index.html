@@ -3720,17 +3720,16 @@ const app = {
             // ==================== CONFIGURATION ====================
            const app = {
             // ==================== CONFIGURATION ====================
-            config: {
-                // DYNAMIC BACKEND URL - Auto-detects based on environment
-                API_BASE_URL: (() => {
-                    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                        return 'http://localhost:10000/api';
-                    }
-                    // Use your actual backend URL
-                    return window.location.origin.includes('vercel.app') 
-                        ? 'https://real-wealthy-1.onrender.com'
-                        : '/api';
-                })(),
+            API_BASE_URL: (() => {
+    const isLocal = window.location.hostname === 'localhost' || 
+                   window.location.hostname === '127.0.0.1';
+    const isVercel = window.location.origin.includes('vercel.app');
+    
+    if (isLocal || isVercel) {
+        return 'https://real-wealthy-1.onrender.com/api';  // ✅ Lowercase https
+    }
+    return window.location.origin + '/api';
+})(),
                 
                 VERSION: '35.0.0',
                 ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
