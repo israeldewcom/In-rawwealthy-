@@ -3715,38 +3715,26 @@
         <i class="fas fa-chevron-up"></i>
     </div>
 <script>// ==================== RAW WEALTHY FRONTEND v40.0 - FULL BACKEND INTEGRATION ====================
+config: {
+    API_BASE_URL: 'https://real-wealthy-kdv4.onrender.com',
+    // OR for local testing with local backend:
+    // API_BASE_URL: 'http://localhost:3000',
+    
+    VERSION: '35.0.0',
+    MIN_INVESTMENT: 3500,
+    MIN_DEPOSIT: 500,
+    MIN_WITHDRAWAL: 1000,
+    PLATFORM_FEE_PERCENT: 5,
+    REFERRAL_COMMISSION_PERCENT: 15,
+    WELCOME_BONUS: 10000
+},
+DEFAULT_BANK_DETAILS: {
+    bank_name: "Opay",
+    account_name: "Israel Wycliffe",
+    account_number: "9161806424"
+}
 
-        const app = {
-            // ==================== CONFIGURATION ====================
-         config: {
-            API_BASE_URL: (() => {
-    const isLocal = window.location.hostname === 'localhost' || 
-                   window.location.hostname === '127.0.0.1';
-    const isVercel = window.location.origin.includes('vercel.app');
-
-    if (isLocal || isVercel) {
-        return 'https://real-wealthy-kdv4.onrender.com';  // ✅ Lowercase https
-    }
-    return window.location.origin + '/api';
-})(),
-                
-                VERSION: '35.0.0',
-                ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
-                MIN_INVESTMENT: 3500,
-                MIN_DEPOSIT: 500,
-                MIN_WITHDRAWAL: 1000,
-                PLATFORM_FEE_PERCENT: 5,
-                REFERRAL_COMMISSION_PERCENT: 15,
-                WELCOME_BONUS: 10000
-            },
-        DEFAULT_BANK_DETAILS: {
-            bank_name: "Opay",
-            account_name: "Israel Wycliffe",
-            account_number: "9161806424"
-        }
-    },
-
-    // ==================== ENHANCED APPLICATION STATE ====================
+  // ==================== ENHANCED APPLICATION STATE ====================
     state: {
         currentUser: null,
         token: localStorage.getItem('raw_wealthy_token'),
