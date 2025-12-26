@@ -3584,20 +3584,19 @@
     <!-- Back to Top Button -->
     <div class="back-to-top" id="back-to-top">
         <i class="fas fa-chevron-up"></i>
-    </div><script>
+    </div>
+    <script>
+        // In your frontend JavaScript, change this:
+config: {
+    API_BASE_URL: (() => {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return 'http://localhost:10000/api';
+        }
+        return 'https://real-wealthy-1.onrender.com/api';  // ✅ THIS IS CORRECT
+    })(),
+}
     // ==================== RAW WEALTHY FRONTEND v35.0 - PRODUCTION READY ====================
-    const app = {
-        // ==================== CONFIGURATION ====================
-        config: {
-            API_BASE_URL: (() => {
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                    return 'http://localhost:10000/api';
-                }
-                return window.location.origin.includes('vercel.app') 
-                    ? 'https://real-wealthy-1.onrender.com'
-                    : '/api';
-            })(),
-            
+    
             VERSION: '35.0.0',
             ENVIRONMENT: window.location.hostname === 'localhost' ? 'development' : 'production',
             MIN_INVESTMENT: 3500,
