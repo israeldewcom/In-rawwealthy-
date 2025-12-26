@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>Test Raw Wealthy Backend</h2>
+<button onclick="testBackend()">Test Backend</button>
+<div id="result"></div>
+
+<script>
+async function testBackend() {
+    const base = 'https://real-wealthy-1.onrender.com';
+    const result = document.getElementById('result');
+    
+    // Test 1: Health
+    try {
+        const health = await fetch(base + '/api/health');
+        const healthData = await health.json();
+        result.innerHTML += `<p>✅ Health: ${health.status} - ${healthData.message}</p>`;
+    } catch(e) {
+        result.innerHTML += `<p>❌ Health failed: ${e.message}</p>`;
+    }
+    
+    // Test 2: Login
+    try {
+        const login = await fetch(base + '/api/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email: 'test@test.com', password: 'test'})
+        });
+        const loginData = await login.json();
+        result.innerHTML += `<p>✅ Login: ${login.status} - ${loginData.message}</p>`;
+    } catch(e) {
+        result.innerHTML += `<p>❌ Login failed: ${e.message}</p>`;
+    }
+    
+    // Test 3: Plans
+    try {
+        const plans = await fetch(base + '/api/plans');
+        const plansData = await plans.json();
+        result.innerHTML += `<p>✅ Plans: ${plans.status} - ${plansData.count} plans found</p>`;
+    } catch(e) {
+        result.innerHTML += `<p>❌ Plans failed: ${e.message}</p>`;
+    }
+}
+</script>
+</body>
+</html>
